@@ -135,6 +135,16 @@ class SettingsMenu:
                 self.audio_manager.play_sfx("button_click")
                 self.hide()
                 return True
+            elif self.save_button.is_clicked(event.pos):
+                self.save_button.press()
+                if self.save_progress():
+                    self.audio_manager.play_sfx("button_click")
+                return True
+            elif self.load_button.is_clicked(event.pos):
+                self.load_button.press()
+                if self.load_progress():
+                    self.audio_manager.play_sfx("button_click")
+                return True
             elif self.panel_rect.collidepoint(event.pos):
                 return True
         
