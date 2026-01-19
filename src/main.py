@@ -74,12 +74,13 @@ class Silksong:
         button_width = int(200 * SCALE_X)
         button_height = int(80 * SCALE_Y)
         button_spacing = int(150 * SCALE_Y)
-        
+        shiftx = SCALE_X * (-100)
+        shifty = SCALE_Y *(150)
         # Scale positions to actual screen size
         self.buttons = {
-            "start": Button(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 - button_spacing, button_width, button_height, "Start", DARK_GRAY, GRAY),
-            "exit": Button(SCREEN_WIDTH/2, SCREEN_HEIGHT/2 + button_spacing, button_width, button_height, "Exit", DARK_GRAY, GRAY),
-            "settings": Button(SCREEN_WIDTH/2, SCREEN_HEIGHT/2, button_width, button_height, "Settings", DARK_GRAY, GRAY)
+            "start": Button(SCREEN_WIDTH/2+shiftx, SCREEN_HEIGHT/2 - button_spacing+shifty, button_width, button_height, "Start", DARK_GRAY, GRAY),
+            "settings": Button(SCREEN_WIDTH/2+shiftx, SCREEN_HEIGHT/2+shifty, button_width, button_height, "Options", DARK_GRAY, GRAY),
+            "exit": Button(SCREEN_WIDTH/2+shiftx, SCREEN_HEIGHT/2 + button_spacing+shifty, button_width, button_height, "Exit", DARK_GRAY, GRAY),
             }
     
     def update_title_screen(self, dt):
