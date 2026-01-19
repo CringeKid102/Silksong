@@ -75,7 +75,7 @@ class Silksong:
         button_height = int(80 * SCALE_Y)
         button_spacing = int(150 * SCALE_Y)
         shiftx = SCALE_X * (-100)
-        shifty = SCALE_Y *(150)
+        shifty = 150
         # Scale positions to actual screen size
         self.buttons = {
             "start": Button(SCREEN_WIDTH/2+shiftx, SCREEN_HEIGHT/2 - button_spacing+shifty, button_width, button_height, "Start", DARK_GRAY, GRAY),
