@@ -1,10 +1,28 @@
 import pygame
 import os
 import json
+import config
 from slider import Slider
 
 class SettingsMenu:
+    """
+    Settings menu for the game.
+    Attributes:
+        width (int): Width of the game screen.
+        height (int): Height of the game screen.
+        audio_manager (AudioManager): Reference to the game's audio manager.
+        button_class (class): Reference to the Button class for creating buttons.
+    """
+
     def __init__(self, width, height, audio_manager, button_class):
+        """
+        Initialize the settings menu.
+        Args:
+            width (int): Width of the game screen.
+            height (int): Height of the game screen.
+            audio_manager (AudioManager): Reference to the game's audio manager.
+            button_class (class): Reference to the Button class for creating buttons.
+        """
         self.width = width
         self.height = height
         self.audio_manager = audio_manager
@@ -12,8 +30,14 @@ class SettingsMenu:
         self.visible = False
         
         # Menu state
-        self.current_menu = "options"  # options, game, audio, video, controller
+        self.current_menu = "options"  # options, game, audio, video, keyboard
         
+        # Load fonts
+        self.font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/Perpetua Regular.otf")
+        self.title_font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/TrajanPro-Regular.ttf")
+        self.font = pygame.font.Font(self.font_path, int(32 * config.scale_y))
+        self.title_font = pygame.font.Font(self.title_font_path, int(48 * config.scale_y))
+
         # Panel
         panel_width, panel_height = 500, 400
         panel_x = (width - panel_width) // 2
@@ -31,52 +55,48 @@ class SettingsMenu:
             'brightness': 0.8
         }
 
-        # Initialize menu buttons
+        # Initialization of menus
         self._init_options_menu()
         self._init_game_menu()
         self._init_audio_menu()
         self._init_video_menu()
-        self._init_controller_menu()
+        self._init_keyboard_menu()
         
         # Save file path
-        self.save_path = os.path.join(os.path.dirname(__file__), "game_progress.json")
+        self.save_path = os.path.join(os.path.dirname(__file__), "log.json")
         
-        # Reference to main game (will be set from outside)
+        # Reference to the main game object
         self.game = None
-        
+    
+    # TODO: Create one parent function to initialize menus (copilot will do this)
+
     def _init_options_menu(self):
         """Initialize the main options menu."""
-        button_width, button_height = 150, 40
         start_y = self.panel_y + 80
         spacing = 60
+        button_font_size = 24
         
         self.options_buttons = {
-            'game': self.button_class(self.panel_x + 175, start_y, button_width, button_height,
-                                     "GAME", (70, 130, 180), (100, 160, 210)),
-            'audio': self.button_class(self.panel_x + 175, start_y + spacing, button_width, button_height,
-                                      "AUDIO", (70, 130, 180), (100, 160, 210)),
-            'video': self.button_class(self.panel_x + 175, start_y + spacing * 2, button_width, button_height,
-                                      "VIDEO", (70, 130, 180), (100, 160, 210)),
-            'controller': self.button_class(self.panel_x + 175, start_y + spacing * 3, button_width, button_height,
-                                           "CONTROLLER", (70, 130, 180), (100, 160, 210)),
+            'game': self.button_class(self.panel_x + 250, start_y + 25, "Game", config.white, config.title_font_path, button_font_size),
+            'audio': self.button_class(self.panel_x + 250, start_y + spacing + 25, "Audio", config.white, config.title_font_path, button_font_size),
+            'video': self.button_class(self.panel_x + 250, start_y + spacing * 2 + 25, "Video", config.white, config.title_font_path, button_font_size),
+            'keyboard': self.button_class(self.panel_x + 250, start_y + spacing * 3 + 25, "Keyboard", config.white, config.title_font_path, button_font_size),
         }
         self.close_button = self.button_class(self.panel_x + self.panel_width - 80, self.panel_y + self.panel_height - 50,
-                                             60, 30, "CLOSE", (100, 100, 100), (150, 150, 150))
-    
+                                             "Back", config.white, config.title_font_path, 20)
+
     def _init_game_menu(self):
         """Initialize game settings menu.""" 
-        button_width, button_height = 200, 30
         start_y = self.panel_y + 80
-        spacing = 50
+        spacing = 30
+        button_font_size = 20
         
         self.game_buttons = {
-            'language': self.button_class(self.panel_x + 150, start_y, button_width, button_height,
-                                         "Language: English", (70, 130, 180), (100, 160, 210)),
-            'camera_shake': self.button_class(self.panel_x + 150, start_y + spacing, button_width, button_height,
-                                             "Camera Shake: ON", (70, 130, 180), (100, 160, 210)),
+            'language': self.button_class(self.panel_x + 250, start_y + 25, "Language: English", config.white, config.title_font_path, button_font_size),
+            'camera_shake': self.button_class(self.panel_x + 250, start_y + spacing + 25, "Camera Shake: ON", config.white, config.title_font_path, button_font_size),
         }
-        self.game_back_button = self.button_class(self.panel_x + 20, self.panel_y + self.panel_height - 50,
-                                                 60, 30, "BACK", (100, 100, 100), (150, 150, 150))
+        self.game_back_button = self.button_class(self.panel_x + 75, self.panel_y + self.panel_height - 50,
+                                                 "Back", config.white, config.title_font_path, 20)
     
     def _init_audio_menu(self):
         """Initialize audio settings menu."""
@@ -91,8 +111,8 @@ class SettingsMenu:
             'music': Slider(slider_x, self.panel_y + 200, 350, 20, 0.0, 1.0,
                            volumes['music'], "Music Volume", self.audio_manager.set_music_volume),
         }
-        self.audio_back_button = self.button_class(self.panel_x + 20, self.panel_y + self.panel_height - 50,
-                                                  60, 30, "BACK", (100, 100, 100), (150, 150, 150))
+        self.audio_back_button = self.button_class(self.panel_x + 75, self.panel_y + self.panel_height - 50,
+                                                  "Back", config.white, config.title_font_path, 20)
     
     def _init_video_menu(self):
         """Initialize video settings menu."""
@@ -102,13 +122,13 @@ class SettingsMenu:
             'brightness': Slider(slider_x, self.panel_y + 100, 350, 20, 0.0, 1.0,
                                  self.settings_data['brightness'], "Brightness", self._set_brightness),
         }
-        self.video_back_button = self.button_class(self.panel_x + 20, self.panel_y + self.panel_height - 50,
-                                                  60, 30, "BACK", (100, 100, 100), (150, 150, 150))
+        self.video_back_button = self.button_class(self.panel_x + 75, self.panel_y + self.panel_height - 50,
+                                                  "Back", config.white, config.title_font_path, 20)
     
-    def _init_controller_menu(self):
-        """Initialize controller settings menu."""
-        self.controller_back_button = self.button_class(self.panel_x + 20, self.panel_y + self.panel_height - 50,
-                                                       60, 30, "BACK", (100, 100, 100), (150, 150, 150))
+    def _init_keyboard_menu(self):
+        """Initialize keyboard settings menu."""
+        self.keyboard_back_button = self.button_class(self.panel_x + 75, self.panel_y + self.panel_height - 50,
+                                                       "Back", config.white, config.title_font_path, 20)
     
     def _set_brightness(self, value):
         """Set brightness value."""
@@ -120,7 +140,7 @@ class SettingsMenu:
     
     def _toggle_language(self):
         """Toggle language setting."""
-        languages = ['english']  # Add more languages as needed
+        languages = ['english', 'french', 'spanish']  # Add more languages as needed
         current_index = languages.index(self.settings_data['language'])
         self.settings_data['language'] = languages[(current_index + 1) % len(languages)]
     
@@ -130,7 +150,7 @@ class SettingsMenu:
             return False
         
         try:
-            # Ensure directory exists
+            # Make sure directory exists
             os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
             
             # Gather all data to save
@@ -190,7 +210,7 @@ class SettingsMenu:
             volumes = self.audio_manager.get_volumes()
             for key, slider in self.audio_sliders.items():
                 slider.value = volumes[key]
-                slider.update_handle_pos()
+                slider.update()
             
             return True
         except Exception as e:
@@ -203,7 +223,7 @@ class SettingsMenu:
             volumes = self.audio_manager.get_volumes()
             for key, slider in self.sliders.items():
                 slider.value = volumes[key]
-                slider.update_handle_pos()
+                slider.update()
             
             return True
         except Exception as e:
@@ -216,7 +236,7 @@ class SettingsMenu:
         volumes = self.audio_manager.get_volumes()
         for key, slider in self.audio_sliders.items():
             slider.value = volumes[key]
-            slider.update_handle_pos()
+            slider.update()
     
     def hide(self):
         self.visible = False
@@ -233,11 +253,13 @@ class SettingsMenu:
             return self._handle_audio_menu(event)
         elif self.current_menu == "video":
             return self._handle_video_menu(event)
-        elif self.current_menu == "controller":
-            return self._handle_controller_menu(event)
+        elif self.current_menu == "keyboard":
+            return self._handle_keyboard_menu(event)
         
         return False
     
+    # TODO: Create one parent function to handle menu events (copilot will do this)
+
     def _handle_options_menu(self, event):
         """Handle events for the options menu."""
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
@@ -261,10 +283,10 @@ class SettingsMenu:
                 self.audio_manager.play_sfx("button_click")
                 self.current_menu = "video"
                 return True
-            elif self.options_buttons['controller'].is_clicked(event.pos):
-                self.options_buttons['controller'].press()
+            elif self.options_buttons['keyboard'].is_clicked(event.pos):
+                self.options_buttons['keyboard'].press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "controller"
+                self.current_menu = "keyboard"
                 return True
             elif self.panel_rect.collidepoint(event.pos):
                 return True
@@ -341,11 +363,11 @@ class SettingsMenu:
         
         return self.visible
     
-    def _handle_controller_menu(self, event):
-        """Handle events for the controller menu."""
+    def _handle_keyboard_menu(self, event):
+        """Handle events for the keyboard menu."""
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
-            if self.controller_back_button.is_clicked(event.pos):
-                self.controller_back_button.press()
+            if self.keyboard_back_button.is_clicked(event.pos):
+                self.keyboard_back_button.press()
                 self.audio_manager.play_sfx("button_click")
                 self.current_menu = "options"
                 return True
@@ -378,8 +400,8 @@ class SettingsMenu:
                 for slider in self.video_sliders.values():
                     slider.update()
                 self.video_back_button.update(dt)
-            elif self.current_menu == "controller":
-                self.controller_back_button.update(dt)
+            elif self.current_menu == "keyboard":
+                self.keyboard_back_button.update(dt)
         
     def draw(self, screen, font):
         if not self.visible:
@@ -395,7 +417,7 @@ class SettingsMenu:
         pygame.draw.rect(screen, (100, 100, 100), self.panel_rect, 2, border_radius=10)
 
         # Draw title
-        title = font.render("SETTINGS", True, (255, 255, 255))
+        title = font.render("Options", True, (255, 255, 255))
         title_rect = title.get_rect(center=(self.panel_rect.centerx, self.panel_rect.y + 30))
         screen.blit(title, title_rect)
 
@@ -407,18 +429,20 @@ class SettingsMenu:
             self._draw_audio_menu(screen, font)
         elif self.current_menu == "video":
             self._draw_video_menu(screen, font)
-        elif self.current_menu == "controller":
-            self._draw_controller_menu(screen, font)
-    
+        elif self.current_menu == "keyboard":
+            self._draw_keyboard_menu(screen, font)
+
+# TODO: Create one parent function to draw menus (copilot will do this)
+
     def _draw_options_menu(self, screen, font):
         """Draw the options menu."""
         menu_label = font.render("Options", True, (200, 200, 200))
         screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 50))
         
         for button in self.options_buttons.values():
-            button.draw(screen, font)
+            button.draw(screen)
         
-        self.close_button.draw(screen, font)
+        self.close_button.draw(screen)
     
     def _draw_game_menu(self, screen, font):
         """Draw the game menu."""
@@ -433,19 +457,19 @@ class SettingsMenu:
         self.game_buttons['language'].text = language_text
         
         for button in self.game_buttons.values():
-            button.draw(screen, font)
+            button.draw(screen)
         
-        self.game_back_button.draw(screen, font)
+        self.game_back_button.draw(screen)
     
     def _draw_audio_menu(self, screen, font):
         """Draw the audio menu."""
         menu_label = font.render("Audio Settings", True, (200, 200, 200))
-        screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 50))
+        screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 30))
         
         for slider in self.audio_sliders.values():
             slider.draw(screen, font)
         
-        self.audio_back_button.draw(screen, font)
+        self.audio_back_button.draw(screen)
     
     def _draw_video_menu(self, screen, font):
         """Draw the video menu."""
@@ -455,16 +479,16 @@ class SettingsMenu:
         for slider in self.video_sliders.values():
             slider.draw(screen, font)
         
-        self.video_back_button.draw(screen, font)
+        self.video_back_button.draw(screen)
     
-    def _draw_controller_menu(self, screen, font):
-        """Draw the controller menu."""
-        menu_label = font.render("Controller", True, (200, 200, 200))
+    def _draw_keyboard_menu(self, screen, font):
+        """Draw the keyboard menu."""
+        menu_label = font.render("Keyboard Settings", True, (200, 200, 200))
         screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 50))
         
         # Placeholder text for keyboard functions
-        placeholder_text = font.render("[Keyboard Functions Image]", True, (150, 150, 150))
+        placeholder_text = font.render("[Keyboard Functions Image]", True, config.white)
         placeholder_rect = placeholder_text.get_rect(center=(self.panel_rect.centerx, self.panel_y + 150))
         screen.blit(placeholder_text, placeholder_rect)
         
-        self.controller_back_button.draw(screen, font)
+        self.keyboard_back_button.draw(screen)

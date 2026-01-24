@@ -1,211 +1,186 @@
 import pygame
-import math
+import os
 from typing import Tuple, Optional
+from animation import Animation
 
 class Button:
-    def __init__(self, x: int, y: int, width: int, height: int, text: str, color: Tuple[int,int,int], hover_color: Tuple[int,int,int],
-                 tooltip: str = "", icon: Optional[pygame.Surface] = None, hotkey: str = ""):
+    def __init__(self, x: int, y: int, text: str, color: Tuple[int,int,int], font_path: Optional[str] = None, font_size: int = 32):
         """
-        Initialize a button.
+        Initialize a button with pointer animations.
         Args:
-            x (int): X position of the button.
-            y (int): Y position of the button.
-            width (int): Width of the button.
-            height (int): Height of the button.
+            x (int): X position of the button center.
+            y (int): Y position of the button center.
             text (str): Text to display on the button.
-            color (Tuple[int,int,int]): Normal color of the button.
-            hover_color (Tuple[int,int,int]): Color of the button when hovered.
-            tooltip (str, optional): Tooltip text to display on hover.
-            icon (Optional[pygame.Surface], optional): Icon to display on the button.
-            hotkey (str, optional): Hotkey text to display on the button.
+            color (Tuple[int,int,int]): Color of the text.
+            font_path (Optional[str]): Path to custom font file. If None, uses default system font.
+            font_size (int): Size of the font (default: 32).
+            pointer_sheet (str): Path to the pointer spritesheet (42x48, 10 sprites).
         """
-        self.rect = pygame.Rect(x, y, width, height)
+        self.x = x
+        self.y = y
         self.text = text
         self.color = color
-        self.hover_color = hover_color
-        self.tooltip = tooltip
-        self.icon = icon
-        self.hotkey = hotkey
+        
+        # Load font
+        self.font = pygame.font.Font(font_path, font_size)
+        
+        # Interaction state
         self.active = True
-        self.cooldown = 0.0
-        self.max_cooldown = 0.0
-        self.hover_t = 0.0
-        self.scale_t = 1.0
         self.press_timer = 0.0
         self.press_duration = 0.12
+        self.was_hovering = False  # Track if we were hovering in previous frame
 
-    def draw(self, screen: pygame.Surface, font: pygame.font.Font, show_tooltip: bool = False):
-        """
-        Draw the button on the screen.
-        Args:
-            screen (pygame.Surface): The surface to draw on.
-            font (pygame.font.Font): The font to use for text.
-            show_tooltip (bool): Whether to show the tooltip.
-        """
-        draw_color = (100,100,100) if not self.active else tuple(
-            int(self.color[i] + (self.hover_color[i] - self.color[i]) * self.hover_t) for i in range(3))
-
-        w = int(self.rect.width * self.scale_t)
-        h = int(self.rect.height * self.scale_t)
-        scaled_rect = pygame.Rect(0, 0, w, h)
-        scaled_rect.center = self.rect.center
-
-        pygame.draw.rect(screen, draw_color, scaled_rect, border_radius=6)
-        pygame.draw.rect(screen, (255,255,255), scaled_rect, 2, border_radius=6)
-
-        if self.cooldown > 0 and self.max_cooldown > 0:
-            self._draw_radial_cooldown(screen, scaled_rect)
+        # Pointer animation
+        pointer_sheet: str = "assets/images/pointer.png"
+        self.pointer_anim = Animation(pointer_sheet, frame_width=36, frame_height=44)
+        self._load_pointer_animations()
         
-        if self.icon:
-            icon_rect = self.icon.get_rect(center=(scaled_rect.left + 20, scaled_rect.centery))
-            screen.blit(self.icon, icon_rect)
-
-        text_surf = font.render(self.text, True, (255,255,255))
-        if self.icon:
-            text_rect = text_surf.get_rect(center=(scaled_rect.centerx + 10, scaled_rect.centery))
-        else:
-            text_rect = text_surf.get_rect(center=scaled_rect.center)
-        screen.blit(text_surf, text_rect)
-
-        if self.hotkey:
-            small_font = pygame.font.Font(None, 18)
-            key_surf = small_font.render(self.hotkey, True, (200,200,200))
-            screen.blit(key_surf, (scaled_rect.left + 4, scaled_rect.top + 4))
-        
-        if show_tooltip and self.tooltip:
-            self._draw_tooltip(screen, font)
+        # Start with normal state
+        self.current_state = "normal"
     
-    def _draw_radial_cooldown(self, screen: pygame.Surface, rect: pygame.Rect):
-        """
-        Draw radial cooldown indicator overlay
-        Args:
-            screen (pygame.Surface): The surface to draw on.
-            rect (pygame.Rect): The rectangle area of the button.
-        """
-        progress = 1.0 - (self.cooldown / self.max_cooldown)
-        center = rect.center
-        radius = min(rect.width, rect.height) // 2 - 4
-        
-        # Create overlay surface
-        overlay = pygame.Surface((rect.width, rect.height), pygame.SRCALPHA)
-        overlay_center = (rect.width // 2, rect.height // 2)
-        
-        # Draw the "empty" part (what remains on cooldown) as a pie slice
-        if progress < 1.0:
-            # Create points for the unfilled arc (cooldown remaining)
-            points = [overlay_center]
-            start_angle = -math.pi / 2  # Start at top (12 o'clock)
-            end_angle = start_angle + (2 * math.pi * (1.0 - progress))  # Sweep clockwise for remaining time
-            
-            # Generate arc points with more steps for smoother circle
-            steps = 64
-            for i in range(steps + 1):
-                angle = start_angle + (end_angle - start_angle) * (i / steps)
-                x = overlay_center[0] + radius * math.cos(angle)
-                y = overlay_center[1] + radius * math.sin(angle)
-                points.append((x, y))
-            
-            # Draw the darkened wedge showing time remaining
-            if len(points) > 2:
-                pygame.draw.polygon(overlay, (0, 0, 0, 180), points)
-                # Draw outline for the arc
-                if len(points) > 3:
-                    pygame.draw.lines(overlay, (100, 100, 100, 200), False, points[1:], 2)
-        
-        screen.blit(overlay, rect.topleft)
-         
-        # Draw cooldown text in center
-        cooldown_font = pygame.font.Font(None, 24)
-        cd_text = cooldown_font.render(f"{math.ceil(self.cooldown)}s", True, (255,255,0))
-        cd_rect = cd_text.get_rect(center=center)
-        screen.blit(cd_text, cd_rect)
-
-    def _draw_tooltip(self, screen: pygame.Surface, font: pygame.font.Font):
-        """
-        Draw the tooltip near the button.
-        Args:
-            screen (pygame.Surface): The surface to draw on.
-            font (pygame.font.Font): The font to use for the tooltip text.
-        """
-        tooltip_font = pygame.font.Font(None, 20)
-        tooltip_text = self.tooltip
-        if self.cooldown > 0:
-            tooltip_text += f"\n[Cooldown: {math.ceil(self.cooldown)}s remaining]"
-        lines = tooltip_text.split('\n')
-
-        max_width = max(tooltip_font.size(line)[0] for line in lines)
-        line_height = tooltip_font.get_linesize()
-        padding = 8
-
-        tooltip_rect = pygame.Rect(
-            self.rect.centerx - max_width // 2 - padding,
-            self.rect.bottom + 10,
-            max_width + padding * 2,
-            line_height * len(lines) + padding * 2
+    def _load_pointer_animations(self):
+        """Load pointer animations from the spritesheet."""
+        # Hover state
+        self.pointer_anim.add_animation(
+            "hover",
+            row=0,
+            start_col=0,
+            num_frames=10,
+            speed=0.01,
+            loop=False
         )
-
-        bg_color = (60, 40, 40) if self.cooldown > 0 else (40, 40, 40)
-        border_color = (255, 100, 100) if self.cooldown > 0 else (200, 200, 200)
-        pygame.draw.rect(screen, bg_color, tooltip_rect, border_radius=4)
-        pygame.draw.rect(screen, border_color, tooltip_rect, 1, border_radius=4)
-
-        y = tooltip_rect.top + padding
-        for line in lines:
-            color = (255, 255, 100) if line.startswith("[Cooldown:") else (255,255,255)
-            text_surf = tooltip_font.render(line, True, color)
-            screen.blit(text_surf, (tooltip_rect.left + padding, y))
-            y += line_height
-
+        
+        # Pressed state
+        self.pointer_anim.add_animation(
+            "pressed",
+            row=1,
+            start_col=0,
+            num_frames=10,
+            speed=0.01,
+            loop=False
+        )
+        
+        # Release state
+        self.pointer_anim.add_animation(
+            "release",
+            row=1,
+            start_col=0,
+            num_frames=10,
+            speed=0.01,
+            loop=False
+        )
+    
+    def draw(self, screen: pygame.Surface):
+        """
+        Draw the button with static text and animated pointers on both sides.
+        Args:
+            screen (pygame.Surface): The surface to draw on.
+        """
+        # Get current pointer frame based on state
+        if self.current_state == "normal":
+            # Normal state
+            pointer_frame = self.pointer_anim.extract_frames(0, 0, 1)[0]
+        else:
+            # All other states (hover, pressed, release)
+            pointer_frame = self.pointer_anim.get_current_frame()
+        
+        # Draw text in the center
+        text_surf = self.font.render(self.text, True, self.color)
+        text_rect = text_surf.get_rect(center=(self.x, self.y))
+        screen.blit(text_surf, text_rect)
+        
+        # Draw left pointer
+        left_rect = pointer_frame.get_rect(right=text_rect.left - 10, centery=self.y-7)
+        screen.blit(pointer_frame, left_rect)
+        
+        # Draw right pointer
+        right_pointer = pygame.transform.flip(pointer_frame, True, False)
+        right_rect = right_pointer.get_rect(left=text_rect.right + 10, centery=self.y-7)
+        screen.blit(right_pointer, right_rect)
+    
     def update(self, dt: float):
         """
-        Update the button's state.
+        Update the button's state and pointer animation.
         Args:
             dt (float): Delta time since last update.
         """
-        if self.cooldown > 0:
-            self.cooldown -= dt
-            self.active = False
-            if self.cooldown <= 0:
-                self.cooldown = 0.0
-                self.max_cooldown = 0.0
-                self.active = True
-        else:
-            self.active = True
-
+        
+        # Update pointer animation based on state
         mouse_pos = pygame.mouse.get_pos()
-        is_hover = self.rect.collidepoint(mouse_pos) and self.active
-        target = 1.0 if is_hover else 0.0
-        lerp_speed = dt / 0.13 if 0.13 > 0 else 1.0
-        self.hover_t += (target - self.hover_t) * min(1.0, lerp_speed)
-
+        is_hover = self._rect.collidepoint(mouse_pos) and self.active
+        
         if self.press_timer > 0:
             self.press_timer = max(0.0, self.press_timer - dt)
+            new_state = "pressed"
+        elif is_hover:
+            new_state = "hover"
+        else:
+            # Determine if we should play release animation or go to normal
+            if self.was_hovering:
+                new_state = "release"
+            else:
+                new_state = "normal"
+        
+        # Change animation if state changed
+        if new_state != self.current_state:
+            self.current_state = new_state
+            if new_state in ("pressed", "release", "hover"):
+                # Play animation forward
+                self.pointer_anim.set_animation(new_state, reset=True, reverse=False)
+            # Normal state has no animation, just static frame
+        
+        # Update tracking for hover state
+        if is_hover and not self.was_hovering:
+            self.was_hovering = True
+        elif not is_hover and self.was_hovering and self.current_state == "normal":
+            self.was_hovering = False
+        
+        # Update animation
+        if self.current_state != "normal":
+            self.pointer_anim.update(dt)
 
-        hover_scale = 1.0 + 0.05 * self.hover_t
-        target_scale = hover_scale * (0.92 if self.press_timer > 0 else 1.0)
-        self.scale_t += (target_scale - self.scale_t) * min(1.0, dt / 0.08)
+    
+    def _get_rect(self) -> pygame.Rect:
+        """
+        Get the button's collision rect based on text bounds.
+        Returns:
+            pygame.Rect: The button's collision rectangle.
+        """
+        # Use the button's font to get text dimensions
+        text_surf = self.font.render(self.text, True, self.color)
+        text_rect = text_surf.get_rect(center=(self.x, self.y))
+        
+        # Reduce bottom rect to avoid extra padding
+        text_rect.height -= 10
+        return text_rect
+    
+    @property
+    def _rect(self) -> pygame.Rect:
+        """Get the button's collision rect."""
+        return self._get_rect()
 
     def is_clicked(self, pos):
         """
         Check if the button is currently clicked.
         Args:
             pos (Tuple[int,int]): Position to check.
+        Returns:
+            bool: True if clicked, False otherwise.
         """
-        return self.rect.collidepoint(pos) and self.active
+        return self._rect.collidepoint(pos) and self.active
     
     def is_hovered(self):
         """
         Check if the button is currently hovered.
+        Returns:
+            bool: True if hovered, False otherwise.
         """
         mouse_pos = pygame.mouse.get_pos()
-        return self.rect.collidepoint(mouse_pos)
-
+        return self._rect.collidepoint(mouse_pos)
+    
     def press(self):
-        """
-        Trigger the button press animation.
-        """
+        """Trigger the button press animation."""
         self.press_timer = self.press_duration
-        self.scale_t = max(0.0, self.scale_t * 0.92)
     
     def set_cooldown(self, cooldown_time: float):
         """

@@ -2,6 +2,7 @@ import pygame
 import random
 import os
 import sys
+import config
 from animation import Animation
 from audio import AudioManager
 from button import Button
@@ -9,80 +10,72 @@ from particles import ParticleSystem
 from slider import Slider
 from transition import TransitionManager
 from settings import SettingsMenu
- 
+from save_file import SaveFile
+
 # Initialize pygame
 pygame.init()
-
-# Constants
-
-# Design resolution
-GAME_WIDTH, GAME_HEIGHT = 1920, 1080
-
-# Actual screen dimensions - Fullscreen (Github Copilot)
-info = pygame.display.Info()
-SCREEN_WIDTH, SCREEN_HEIGHT = info.current_w, info.current_h
-
-# Calculate scale for resolution independence
-SCALE_X = SCREEN_WIDTH / GAME_WIDTH
-SCALE_Y = SCREEN_HEIGHT / GAME_HEIGHT
-
-# FPS
-FPS = 60
-
-# Colors
-BLACK = (0, 0, 0)
-WHITE = (255, 255, 255)
-RED = (255, 0, 0)
-GREEN = (0, 255, 0)
-BLUE = (0, 0, 255)
-YELLOW = (255, 255, 0)
-GRAY = (100, 100, 100)
-DARK_GRAY = (50, 50, 50)
-DARK_BLUE = (0, 0, 100)
-DARK_GREEN = (0, 100, 0)
 
 class Silksong:
 
     def __init__(self):
         """Initialize the game."""
         # Create fullscreen display at actual screen size
-        self.screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT), pygame.FULLSCREEN)
+        self.screen = pygame.display.set_mode((config.screen_width, config.screen_height), pygame.FULLSCREEN)
         
         pygame.display.set_caption("Silksong")
         self.running = True
         self.state = "title screen"
         self.clock = pygame.time.Clock()
-        self.font = pygame.font.SysFont("Arial", int(30 * SCALE_Y))
         
         # Load and scale title image
-        title_img = pygame.image.load(os.path.join(os.path.dirname(__file__), "../assets/images/Silksong Title.png"))
-        self.title_image = pygame.transform.scale(title_img, (int(GAME_WIDTH * 0.45 * SCALE_X), int(GAME_HEIGHT * 0.3 * SCALE_Y)))
+        title_img = pygame.image.load(os.path.join(os.path.dirname(__file__), "../assets/images/Title.png"))
+        self.title_image = pygame.transform.scale(title_img, (int(880 * config.scale_x), int(440 * config.scale_y)))
+        
+        # Load and scale background image
+        background_img = pygame.image.load(os.path.join(os.path.dirname(__file__), "../assets/images/Title Screen Bg.png"))
+        self.background_image = pygame.transform.scale(background_img, (config.screen_width, config.screen_height))
         
         # Initialize audio manager
         self.audio_manager = AudioManager()
         
+        # Initialize save file system
+        self.save_file = SaveFile()
+        self.current_slot = 1
+        self.game_state = None
+        
         # Create settings menu
-        self.settings_menu = SettingsMenu(SCREEN_WIDTH, SCREEN_HEIGHT, self.audio_manager, Button)
+        self.settings_menu = SettingsMenu(config.screen_width, config.screen_height, self.audio_manager, Button)
         self.settings_menu.game = self  # Link settings menu to game for save/load
         
         # Create buttons
-        self.create_buttons()
+        self.create_buttons() # Normal buttons
+        self.create_save_slot_buttons() # Save slot buttons
 
     def create_buttons(self):
         """Create buttons for the title screen."""
-        # Scale button dimensions to current screen size
-        button_width = int(200 * SCALE_X)
-        button_height = int(80 * SCALE_Y)
-        button_spacing = int(150 * SCALE_Y)
-        shiftx = SCALE_X * (-100)
-        shifty = 150
         # Scale positions to actual screen size
+        button_spacing = int(80 * config.scale_y)
+        shifty = int(200 * config.scale_y)
+        button_font_size = int(40 * config.scale_y)
+        
         self.buttons = {
-            "start": Button(SCREEN_WIDTH/2+shiftx, SCREEN_HEIGHT/2 - button_spacing+shifty, button_width, button_height, "Start", DARK_GRAY, GRAY),
-            "settings": Button(SCREEN_WIDTH/2+shiftx, SCREEN_HEIGHT/2+shifty, button_width, button_height, "Options", DARK_GRAY, GRAY),
-            "exit": Button(SCREEN_WIDTH/2+shiftx, SCREEN_HEIGHT/2 + button_spacing+shifty, button_width, button_height, "Exit", DARK_GRAY, GRAY),
+            "start": Button(config.screen_width/2, config.screen_height/2 - button_spacing+shifty, "Start Game", config.white, config.title_font_path, button_font_size),
+            "settings": Button(config.screen_width/2, config.screen_height/2+shifty, "Options", config.white, config.title_font_path, button_font_size),
+            "exit": Button(config.screen_width/2, config.screen_height/2 + button_spacing+shifty, "Exit", config.white, config.title_font_path, button_font_size),
             }
     
+    def create_save_slot_buttons(self):
+        """Create buttons for save slot selection."""
+        button_spacing = int(150 * config.scale_y)
+        button_font_size = int(40 * config.scale_y)
+        
+        self.save_slot_buttons = {
+            1: Button(config.screen_width/2, config.screen_height/2 - button_spacing, "Slot 1", config.white, config.title_font_path, button_font_size),
+            2: Button(config.screen_width/2, config.screen_height/2, "Slot 2", config.white, config.title_font_path, button_font_size),
+            3: Button(config.screen_width/2, config.screen_height/2 + button_spacing, "Slot 3", config.white, config.title_font_path, button_font_size),
+            "back": Button(config.screen_width/2, config.screen_height/2 + button_spacing * 2, "Back", config.white, config.title_font_path, button_font_size),
+        }
+
     def update_title_screen(self, dt):
         for button in self.buttons.values():
             button.update(dt)
@@ -91,7 +84,8 @@ class Silksong:
         self.settings_menu.update(dt)
     
     def update_save_files(self, dt):
-        pass
+        for button in self.save_slot_buttons.values():
+            button.update(dt)
     
     def update_cutscene(self, dt):
         pass
@@ -100,25 +94,56 @@ class Silksong:
         pass
     
     def draw_title_screen(self):
-        self.screen.fill(DARK_BLUE)
+        # Draw background
+        self.screen.blit(self.background_image, (0, 0))
         
         # Draw the Silksong title image
-        title_rect = self.title_image.get_rect(center=(SCREEN_WIDTH/2, int(SCREEN_HEIGHT/2 - 200 * SCALE_Y)))
+        title_rect = self.title_image.get_rect(center=(config.screen_width/2, int(config.screen_height/2 - 200 * config.scale_y)))
         self.screen.blit(self.title_image, title_rect)
         
         # Draw buttons
         for button in self.buttons.values():
-            button.draw(self.screen, self.font)
-    
+            button.draw(self.screen)
+                
     def draw_settings(self):
-        self.screen.fill(DARK_BLUE)
-        self.settings_menu.draw(self.screen, self.font)
+        self.screen.fill(config.dark_blue)
+        self.settings_menu.draw(self.screen, config.font)
+    
+    def draw_save_files(self):
+        self.screen.fill(config.dark_blue)
+        
+        # Draw title
+        title_text = config.font.render("Select Save Slot", True, config.white)
+        title_rect = title_text.get_rect(center=(config.screen_width/2, int(config.screen_height/2 - 300 * config.scale_y)))
+        self.screen.blit(title_text, title_rect)
+        
+        # Draw save slot buttons with status
+        for slot_num in [1, 2, 3]:
+            button = self.save_slot_buttons[slot_num]
+            button.draw(self.screen)
+            
+            # Check if save file exists and display status
+            game_state = self.save_file.load_game_file(slot_num)
+            if game_state:
+                status = f"Level {game_state.get('level', 1)} - Score: {game_state.get('score', 0)}"
+                status_font = pygame.font.Font(config.title_font_path, int(20 * config.scale_y))
+                status_text = status_font.render(status, True, config.gray)
+                status_rect = status_text.get_rect(center=(config.screen_width/2, button.rect.centery + int(30 * config.scale_y)))
+                self.screen.blit(status_text, status_rect)
+            else:
+                status_font = pygame.font.Font(config.title_font_path, int(20 * config.scale_y))
+                status_text = status_font.render("Empty Slot", True, config.gray)
+                status_rect = status_text.get_rect(center=(config.screen_width/2, button.rect.centery + int(30 * config.scale_y)))
+                self.screen.blit(status_text, status_rect)
+        
+        # Draw back button
+        self.save_slot_buttons["back"].draw(self.screen)
     
     def draw_cutscene(self):
-        self.screen.fill(BLACK)
+        self.screen.fill(config.black)
     
     def draw_game(self):
-        self.screen.fill(BLACK)
+        self.screen.fill(config.black)
     
     def draw(self):
         """Render the game."""
@@ -127,6 +152,8 @@ class Silksong:
         elif self.state == "settings":
             self.draw_settings()
         elif self.state == "save files":
+            self.draw_save_files()
+        elif self.state == "cutscene":
             self.draw_cutscene()
         elif self.state == "game":
             self.draw_game()
@@ -180,13 +207,40 @@ class Silksong:
                         self.audio_manager.play_sfx("button_click")
                         self.settings_menu.show()
                         self.state = "settings"
+                
+                elif self.state == "save files":
+                    # Handle save slot selection
+                    for slot_num in [1, 2, 3]:
+                        if self.save_slot_buttons[slot_num].is_clicked(pos):
+                            self.audio_manager.play_sfx("button_click")
+                            self.current_slot = slot_num
+                            
+                            # Try to load existing save
+                            loaded_state = self.save_file.load_game_file(slot_num)
+                            if loaded_state:
+                                self.game_state = loaded_state
+                            else:
+                                # Create new save file for this slot
+                                self.save_file.create_game_file(slot_num)
+                                self.game_state = {
+                                    "level": 1,
+                                    "score": 0,
+                                    "player_position": [0, 0],
+                                    "inventory": []
+                                }
+                            
+                            self.state = "game"  # Start the game
+                    
+                    if self.save_slot_buttons["back"].is_clicked(pos):
+                        self.audio_manager.play_sfx("button_click")
+                        self.state = "title screen"
     
     def reset():
         pass
 
     def run(self):
         while self.running:
-            dt = self.clock.tick(FPS) / 1000.0
+            dt = self.clock.tick(config.fps) / 1000.0
 
             self.handle_events()
             self.update(dt)
@@ -199,5 +253,3 @@ class Silksong:
 if __name__ == "__main__":
     game = Silksong()
     game.run()
-
-    

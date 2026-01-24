@@ -29,7 +29,6 @@ class AudioManager:
             if os.path.exists(self.settings_file):
                 with open(self.settings_file, 'r') as f:
                     data = json.load(f)
-                    # Audio settings are nested under 'audio_settings' key
                     audio_settings = data.get("audio_settings", {})
                     self.master_volume = audio_settings.get("master", 0.7)
                     self.music_volume = audio_settings.get("music", 0.5)
@@ -86,7 +85,6 @@ class AudioManager:
     def play_sfx(self, sound_name, volume_override=None):
         """Play a sound effect"""
         if sound_name not in self.sfx_sounds:
-            # Silently fail for missing sounds - don't spam console
             return
         
         channel = None
@@ -129,14 +127,6 @@ class AudioManager:
             pygame.mixer.music.fadeout(int(fade_out * 1000))
         else:
             pygame.mixer.music.stop()
-    
-    def duck_music(self, duck_volume: float = 0.3):
-        """Lower music volume temporarily."""
-        pygame.mixer.music.set_volume(duck_volume * self.master_volume)
-    
-    def unduck_music(self):
-        """Restore music volume."""
-        pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
     
     def set_master_volume(self, volume: float):
         self.master_volume = max(0.0, min(1.0, volume))

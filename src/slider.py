@@ -16,9 +16,9 @@ class Slider:
         self.callback = callback
         self.dragging = False
         self.handle_width = 20
-        self.update_handle_pos()
+        self.update()
     
-    def update_handle_pos(self):
+    def update(self):
         """Update the handle position based on the current value."""
         progress = (self.value - self.min_val) / (self.max_val - self.min_val)
         handle_x = self.rect.x + progress * (self.rect.width - self.handle_width)
@@ -34,7 +34,7 @@ class Slider:
                 progress = rel_x / self.rect.width
                 self.value = self.min_val + progress * (self.max_val - self.min_val)
                 self.value = max(self.min_val, min(self.value, self.max_val))
-                self.update_handle_pos()
+                self.update()
                 if self.callback:
                     self.callback(self.value)
         elif event.type == pygame.MOUSEBUTTONUP and event.button == 1:
@@ -45,7 +45,7 @@ class Slider:
                 progress = rel_x / self.rect.width
                 self.value = self.min_val + progress * (self.max_val - self.min_val)
                 self.value = max(self.min_val, min(self.value, self.max_val))
-                self.update_handle_pos()
+                self.update()
                 if self.callback:
                     self.callback(self.value)
         
