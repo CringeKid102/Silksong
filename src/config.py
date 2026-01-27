@@ -22,7 +22,7 @@ font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/Perpetua Re
 title_font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/TrajanPro-Regular.ttf")
 font = pygame.font.Font(font_path, int(32 * scale_y))
 title_font = pygame.font.Font(title_font_path, int(48 * scale_y))
-
+super_title_font = pygame.font.Font(title_font_path, int(72 * scale_y))
 # FPS
 fps = 60
 

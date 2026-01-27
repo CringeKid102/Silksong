@@ -108,6 +108,7 @@ class Silksong:
         
         self.transition_manager.start_transition(
             target_state=new_state,
+            
             transition_type=TransitionType.FADE_COLOR,
             speed=2.0,
             state_change_callback=on_state_change,
@@ -141,6 +142,7 @@ class Silksong:
     
     def draw(self):
         """Render the game."""
+        self.screen.blit(self.background_image, (0, 0))
         if self.state == "title screen":
             self.draw_title_screen()
         elif self.state == "settings":
@@ -190,6 +192,8 @@ class Silksong:
             
             # Handle settings menu events
             if self.state == "settings":
+                
+                
                 if self.settings_menu.handle_event(event):
                     continue
                 # Return to title screen if settings menu was closed
@@ -214,6 +218,8 @@ class Silksong:
                 
                 elif self.state == "save files":
                     # Handle save slot selection
+                    background_img = pygame.image.load(os.path.join(os.path.dirname(__file__), "../assets/images/Title Screen Bg.png"))
+                    self.background_image = pygame.transform.scale(background_img, (config.screen_width, config.screen_height))
                     for slot_num in [1, 2, 3]:
                         if self.save_slot_buttons[slot_num].is_clicked(pos):
                             self.audio_manager.play_sfx("button_click")
