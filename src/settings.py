@@ -3,6 +3,7 @@ import os
 import json
 import config
 from slider import Slider
+from transition import TransitionType
 
 class SettingsMenu:
     """
@@ -67,6 +68,12 @@ class SettingsMenu:
         
         # Reference to the main game object
         self.game = None
+        
+        # Reference to transition manager (will be set by main game)
+        self.transition_manager = None
+        
+        # Track if we're transitioning between menus
+        self.pending_menu = None
     
     # TODO: Create one parent function to initialize menus (copilot will do this)
 
@@ -233,6 +240,7 @@ class SettingsMenu:
     def show(self):
         self.visible = True
         self.current_menu = "options"
+        self.pending_menu = None
         volumes = self.audio_manager.get_volumes()
         for key, slider in self.audio_sliders.items():
             slider.value = volumes[key]
@@ -244,6 +252,10 @@ class SettingsMenu:
     def handle_event(self, event):
         if not self.visible:
             return False
+        
+        # Skip input handling during transitions
+        if self.transition_manager and self.transition_manager.active:
+            return True  # Return True to consume the event
         
         if self.current_menu == "options":
             return self._handle_options_menu(event)
@@ -271,22 +283,22 @@ class SettingsMenu:
             elif self.options_buttons['game'].is_clicked(event.pos):
                 self.options_buttons['game'].press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "game"
+                self.change_menu("game")
                 return True
             elif self.options_buttons['audio'].is_clicked(event.pos):
                 self.options_buttons['audio'].press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "audio"
+                self.change_menu("audio")
                 return True
             elif self.options_buttons['video'].is_clicked(event.pos):
                 self.options_buttons['video'].press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "video"
+                self.change_menu("video")
                 return True
             elif self.options_buttons['keyboard'].is_clicked(event.pos):
                 self.options_buttons['keyboard'].press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "keyboard"
+                self.change_menu("keyboard")
                 return True
             elif self.panel_rect.collidepoint(event.pos):
                 return True
@@ -303,7 +315,7 @@ class SettingsMenu:
             if self.game_back_button.is_clicked(event.pos):
                 self.game_back_button.press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "options"
+                self.change_menu("options")
                 return True
             elif self.game_buttons['camera_shake'].is_clicked(event.pos):
                 self.game_buttons['camera_shake'].press()
@@ -319,7 +331,7 @@ class SettingsMenu:
                 return True
         
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            self.current_menu = "options"
+            self.change_menu("options")
             return True
         
         return self.visible
@@ -333,13 +345,13 @@ class SettingsMenu:
             if self.audio_back_button.is_clicked(event.pos):
                 self.audio_back_button.press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "options"
+                self.change_menu("options")
                 return True
             elif self.panel_rect.collidepoint(event.pos):
                 return True
         
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            self.current_menu = "options"
+            self.change_menu("options")
             return True
         
         return self.visible
@@ -352,13 +364,13 @@ class SettingsMenu:
             if self.video_back_button.is_clicked(event.pos):
                 self.video_back_button.press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "options"
+                self.change_menu("options")
                 return True
             elif self.panel_rect.collidepoint(event.pos):
                 return True
         
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            self.current_menu = "options"
+            self.change_menu("options")
             return True
         
         return self.visible
@@ -369,16 +381,36 @@ class SettingsMenu:
             if self.keyboard_back_button.is_clicked(event.pos):
                 self.keyboard_back_button.press()
                 self.audio_manager.play_sfx("button_click")
-                self.current_menu = "options"
+                self.change_menu("options")
                 return True
             elif self.panel_rect.collidepoint(event.pos):
                 return True
         
         if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
-            self.current_menu = "options"
+            self.change_menu("options")
             return True
         
         return self.visible
+    
+    def change_menu(self, new_menu):
+        """Change menu with black fade transition."""
+        if self.transition_manager and self.transition_manager.active:
+            return  # Don't start new transition if one is active
+            
+        def on_menu_change(target_state):
+            self.current_menu = target_state
+        
+        if self.transition_manager:
+            self.transition_manager.start_transition(
+                target_state=new_menu,
+                transition_type=TransitionType.FADE_COLOR,
+                speed=3.0,
+                state_change_callback=on_menu_change,
+                color=(0, 0, 0)
+            )
+        else:
+            # Fallback if no transition manager
+            self.current_menu = new_menu
     
     def update(self, dt):
         if self.visible:

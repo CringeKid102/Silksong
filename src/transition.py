@@ -3,6 +3,14 @@ import os
 from typing import Optional, Callable, Dict, Any
 from enum import Enum
 
+# Conditional import for video support
+try:
+    import cv2
+    CV2_AVAILABLE = True
+except ImportError:
+    CV2_AVAILABLE = False
+    cv2 = None
+
 class TransitionType(Enum):
     FADE_COLOR = "fade_color"
     FADE_VIDEO = "fade_video"
@@ -54,6 +62,11 @@ class TransitionManager:
         self.image_surface = None
         self.slide_offset = 0.0
         self.circle_radius = 0.0
+        self.circle_center = (screen_width // 2, screen_height // 2)
+        
+        # Cached surfaces for performance
+        self._overlay_cache = None
+        self._max_circle_radius = int(((screen_width ** 2 + screen_height ** 2) ** 0.5) / 2) + 50
 
         # Video properties
         self.video_speed_multiplier = video_speed_multiplier
@@ -104,9 +117,16 @@ class TransitionManager:
         self.progress = 0.0
         self.slide_offset = 0.0
         self.circle_radius = 0.0
+        self._overlay_cache = None  # Clear cache on new transition
 
         # Set easing function
-        self.easing_function = getattr(self, f"_{easing}_ease", self._linear_ease)
+        easing_map = {
+            'linear': self._linear_ease,
+            'ease_in': self._ease_in,
+            'ease_out': self._ease_out,
+            'ease_in_out': self._ease_in_out
+        }
+        self.easing_function = easing_map.get(easing, self._linear_ease)
 
         # Set initial phase
         if transition_type in [TransitionType.FADE_COLOR, TransitionType.FADE_VIDEO, TransitionType.FADE_IMAGE]:
@@ -128,58 +148,51 @@ class TransitionManager:
         try:
             if self.transition_type == TransitionType.FADE_COLOR:
                 self.fade_color = kwargs.get("color", (0, 0, 0))
-            elif self.transition_type == TransitionType.FADE_VIDEO:
-                video_path = kwargs.get("video_path")
-                if not video_path:
-                    print("FADE_VIDEO requires 'video_path' parameter.") 
-                    return False
                 
-                if not os.path.exists(video_path):
+            elif self.transition_type == TransitionType.FADE_VIDEO:
+                if not CV2_AVAILABLE:
+                    print("OpenCV is required for video transitions. Install: pip install opencv-python")
+                    return False
+                    
+                video_path = kwargs.get("video_path")
+                if not video_path or not os.path.exists(video_path):
                     print(f"Video file not found: {video_path}")
                     return False
                 
-                try:
-                    import cv2
-                    self.video_cap = cv2.VideoCapture(video_path)
-                    if not self.video_cap.isOpened():
-                        print(f"Failed to open video file: {video_path}")
-                        return False
-                    
-                    self.video_speed_multiplier = kwargs.get("video_speed", 2.0)
-                    self.video_loop = kwargs.get("video_loop", True)
-                    self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                
-                except ImportError:
-                    print("OpenCV is required for video transitions. Please install it via 'pip install opencv-python'.")
+                self.video_cap = cv2.VideoCapture(video_path)
+                if not self.video_cap.isOpened():
+                    print(f"Failed to open video: {video_path}")
                     return False
+                
+                self.video_speed_multiplier = kwargs.get("video_speed", 2.0)
+                self.video_loop = kwargs.get("video_loop", True)
+                self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
             
             elif self.transition_type == TransitionType.FADE_IMAGE:
                 image_path = kwargs.get("image_path")
-                if not image_path:
-                    print("FADE_IMAGE requires 'image_path' parameter.")
-                    return False
-                
-                if not os.path.exists(image_path):
+                if not image_path or not os.path.exists(image_path):
                     print(f"Image file not found: {image_path}")
                     return False
                 
-                self.image_surface = pygame.image.load(image_path).convert()
-                self.image_surface = pygame.transform.scale(self.image_surface, (self.width, self.height))
+                self.image_surface = pygame.transform.scale(
+                    pygame.image.load(image_path).convert(),
+                    (self.width, self.height)
+                )
             
-            elif "SLIDE" in self.transition_type.value.upper():
+            elif self.transition_type.value.startswith("slide"):
                 self.fade_color = kwargs.get("color", (0, 0, 0))
                 custom_surface = kwargs.get("surface")
                 if custom_surface:
                     self.image_surface = pygame.transform.scale(custom_surface, (self.width, self.height))
             
-            elif "CIRCLE" in self.transition_type.value.upper():
+            elif self.transition_type.value.startswith("circle"):
                 self.fade_color = kwargs.get("color", (0, 0, 0))
                 self.circle_center = kwargs.get("center", (self.width // 2, self.height // 2))
             
             return True
         
         except Exception as e:
-            print(f"Error configuring transition content: {e}")
+            print(f"Error configuring transition: {e}")
             return False
     
     def update(self, dt: float):
@@ -207,7 +220,8 @@ class TransitionManager:
         if not self.active:
             return result
 
-        progress_delta = (self.speed / 255.0) * dt
+        # Speed is now in seconds for full transition (e.g., 2.0 = 2 seconds)
+        progress_delta = (10 / self.speed) * dt
         self.progress += progress_delta
 
         if self.phase == 'in':
@@ -232,25 +246,22 @@ class TransitionManager:
         """
         Update content based on transition type and progress.
         """
-        if self.transition_type == TransitionType.FADE_VIDEO and self.video_cap is not None:
+        if self.transition_type == TransitionType.FADE_VIDEO and self.video_cap:
             try:
-                import cv2
-
                 steps = max(1, int(self.video_speed_multiplier))
+                # Skip frames for speed
                 for _ in range(steps - 1):
-                    ret, _ = self.video_cap.read()
-                    if not ret:
-                        if self.video_loop:
-                            self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
-                        break
+                    if not self.video_cap.read()[0] and self.video_loop:
+                        self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
+                
                 ret, frame = self.video_cap.read()
                 if not ret:
                     if self.video_loop:
                         self.video_cap.set(cv2.CAP_PROP_POS_FRAMES, 0)
                         ret, frame = self.video_cap.read()
+                
                 if ret:
                     frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                    # Pygame expects (width, height) orientation; swap axes like elsewhere in project
                     surf = pygame.surfarray.make_surface(frame.swapaxes(0, 1))
                     self.current_frame = pygame.transform.scale(surf, (self.width, self.height)).convert()
             except Exception as e:
@@ -263,6 +274,7 @@ class TransitionManager:
         self.active = False
         self.phase = "complete"
         self.progress = 1.0
+        self._overlay_cache = None  # Clear cache
 
         if self.video_cap:
             try:
@@ -335,10 +347,13 @@ class TransitionManager:
             surface (pygame.Surface): The surface to draw on.
             alpha (float): Alpha value for the fade.
         """
-        overlay = pygame.Surface((self.width, self.height))
-        overlay.fill(self.fade_color)
-        overlay.set_alpha(alpha)
-        surface.blit(overlay, (0, 0))
+        # Create or reuse cached overlay
+        if not self._overlay_cache:
+            self._overlay_cache = pygame.Surface((self.width, self.height))
+            self._overlay_cache.fill(self.fade_color)
+        
+        self._overlay_cache.set_alpha(alpha)
+        surface.blit(self._overlay_cache, (0, 0))
     
     def _draw_video_fade(self, surface: pygame.Surface, alpha: float):
         """
@@ -372,26 +387,24 @@ class TransitionManager:
             alpha (float): Alpha value for the slide.
         """
         slide_progress = self.easing_function(self.progress)
-
-        if self.transition_type == TransitionType.SLIDE_LEFT:
-            x = -self.width + (slide_progress * self.width)
-            y = 0
-        elif self.transition_type == TransitionType.SLIDE_RIGHT:
-            x = self.width - (slide_progress * self.width)
-            y = 0
-        elif self.transition_type == TransitionType.SLIDE_UP:
-            x = 0
-            y = -self.height + (slide_progress * self.height)
-        else: # SLIDE_DOWN
-            x = 0
-            y = self.height - (slide_progress * self.height)
+        
+        # Calculate position based on transition type
+        positions = {
+            TransitionType.SLIDE_LEFT: (-self.width + slide_progress * self.width, 0),
+            TransitionType.SLIDE_RIGHT: (self.width - slide_progress * self.width, 0),
+            TransitionType.SLIDE_UP: (0, -self.height + slide_progress * self.height),
+            TransitionType.SLIDE_DOWN: (0, self.height - slide_progress * self.height)
+        }
+        
+        x, y = positions.get(self.transition_type, (0, 0))
         
         if self.image_surface:
             surface.blit(self.image_surface, (x, y))
         else:
-            overlay = pygame.Surface((self.width, self.height))
-            overlay.fill(self.fade_color)
-            surface.blit(overlay, (x, y))
+            if not self._overlay_cache:
+                self._overlay_cache = pygame.Surface((self.width, self.height))
+                self._overlay_cache.fill(self.fade_color)
+            surface.blit(self._overlay_cache, (x, y))
     
     def _draw_circle(self, surface: pygame.Surface, alpha: float):
         """
@@ -402,23 +415,23 @@ class TransitionManager:
         """
         circle_progress = self.easing_function(self.progress)
 
-        max_radius = int(((self.width ** 2 + self.height ** 2) ** 0.5) / 2) + 50
-
         if self.transition_type == TransitionType.CIRCLE_EXPAND:
-            radius = int(circle_progress * max_radius)
+            radius = int(circle_progress * self._max_circle_radius)
         else:  # CIRCLE_CONTRACT
-            radius = int((1.0 - circle_progress) * max_radius)
+            radius = int((1.0 - circle_progress) * self._max_circle_radius)
 
+        if radius <= 0:
+            return
+            
         mask = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         mask.fill(self.fade_color)
 
-        if radius > 0:
-            circle_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
-            if self.transition_type == TransitionType.CIRCLE_EXPAND:
-                pygame.draw.circle(circle_surface, (0, 0, 0, 0), self.circle_center, radius)
-                mask.blit(circle_surface, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
-            else:  # CIRCLE_CONTRACT
-                pygame.draw.circle(mask, (0, 0, 0, 0), self.circle_center, radius)
+        circle_surface = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+        if self.transition_type == TransitionType.CIRCLE_EXPAND:
+            pygame.draw.circle(circle_surface, (0, 0, 0, 0), self.circle_center, radius)
+            mask.blit(circle_surface, (0, 0), special_flags=pygame.BLEND_RGBA_SUB)
+        else:  # CIRCLE_CONTRACT
+            pygame.draw.circle(mask, (0, 0, 0, 0), self.circle_center, radius)
         
         mask.set_alpha(alpha)
         surface.blit(mask, (0, 0))
@@ -431,37 +444,38 @@ class TransitionManager:
             alpha (float): Alpha value for the wipe.
         """
         wipe_progress = self.easing_function(self.progress)
+        width = int(self.width * wipe_progress)
+        
+        if width <= 0:
+            return
 
         if self.transition_type == TransitionType.WIPE_LEFT:
-            width = int(self.width * wipe_progress)
             rect = pygame.Rect(0, 0, width, self.height)
         else:  # WIPE_RIGHT
-            width = int(self.width * wipe_progress)
             rect = pygame.Rect(self.width - width, 0, width, self.height)
 
-        if rect.width > 0:
-            overlay = pygame.Surface((rect.width, rect.height))
-            overlay.fill(self.fade_color)
-            overlay.set_alpha(alpha)
-            surface.blit(overlay, rect.topleft)
+        if not self._overlay_cache:
+            self._overlay_cache = pygame.Surface((self.width, self.height))
+            self._overlay_cache.fill(self.fade_color)
+        
+        self._overlay_cache.set_alpha(alpha)
+        surface.blit(self._overlay_cache, rect.topleft, area=rect)
 
     # EASING FUNCTIONS
     def _linear_ease(self, t: float) -> float:
         return max(0.0, min(1.0, t))
 
-    def _ease_in_ease(self, t: float) -> float:
-        t = self._linear_ease(t)
+    def _ease_in(self, t: float) -> float:
+        t = max(0.0, min(1.0, t))
         return t * t
 
-    def _ease_out_ease(self, t: float) -> float:
-        t = self._linear_ease(t)
+    def _ease_out(self, t: float) -> float:
+        t = max(0.0, min(1.0, t))
         return 1 - (1 - t) * (1 - t)
 
-    def _ease_in_out_ease(self, t: float) -> float:
-        t = self._linear_ease(t)
-        if t < 0.5:
-            return 2 * t * t
-        return 1 - pow(-2 * t + 2, 2) / 2
+    def _ease_in_out(self, t: float) -> float:
+        t = max(0.0, min(1.0, t))
+        return 2 * t * t if t < 0.5 else 1 - pow(-2 * t + 2, 2) / 2
     
     # Utility functions
     def is_active(self) -> bool:
@@ -474,7 +488,7 @@ class TransitionManager:
 
     def clear(self):
         """
-        clear resources used by the transition manager.
+        Clear resources used by the transition manager.
         """
         if self.video_cap:
             try:
@@ -485,5 +499,5 @@ class TransitionManager:
         
         self.current_frame = None
         self.image_surface = None
+        self._overlay_cache = None
         self.active = False
-

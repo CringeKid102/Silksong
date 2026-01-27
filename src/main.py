@@ -8,7 +8,7 @@ from audio import AudioManager
 from button import Button
 from particles import ParticleSystem
 from slider import Slider
-from transition import TransitionManager
+from transition import TransitionManager, TransitionType
 from settings import SettingsMenu
 from save_file import SaveFile
 
@@ -43,9 +43,17 @@ class Silksong:
         self.current_slot = 1
         self.game_state = None
         
+        # Initialize transition manager
+        self.transition_manager = TransitionManager(
+            screen_width=config.screen_width,
+            screen_height=config.screen_height,
+            default_speed=1.5
+        )
+        
         # Create settings menu
         self.settings_menu = SettingsMenu(config.screen_width, config.screen_height, self.audio_manager, Button)
         self.settings_menu.game = self  # Link settings menu to game for save/load
+        self.settings_menu.transition_manager = self.transition_manager  # Link transition manager to settings
         
         # Create buttons
         self.create_buttons() # Normal buttons
@@ -93,6 +101,19 @@ class Silksong:
     def update_game(self, dt):
         pass
     
+    def change_state(self, new_state):
+        """Change game state with black fade transition."""
+        def on_state_change(target_state):
+            self.state = target_state
+        
+        self.transition_manager.start_transition(
+            target_state=new_state,
+            transition_type=TransitionType.FADE_COLOR,
+            speed=2.0,
+            state_change_callback=on_state_change,
+            color=(0, 0, 0)
+        )
+    
     def draw_title_screen(self):
         # Draw background
         self.screen.blit(self.background_image, (0, 0))
@@ -110,34 +131,7 @@ class Silksong:
         self.settings_menu.draw(self.screen, config.font)
     
     def draw_save_files(self):
-        self.screen.fill(config.dark_blue)
-        
-        # Draw title
-        title_text = config.font.render("Select Save Slot", True, config.white)
-        title_rect = title_text.get_rect(center=(config.screen_width/2, int(config.screen_height/2 - 300 * config.scale_y)))
-        self.screen.blit(title_text, title_rect)
-        
-        # Draw save slot buttons with status
-        for slot_num in [1, 2, 3]:
-            button = self.save_slot_buttons[slot_num]
-            button.draw(self.screen)
-            
-            # Check if save file exists and display status
-            game_state = self.save_file.load_game_file(slot_num)
-            if game_state:
-                status = f"Level {game_state.get('level', 1)} - Score: {game_state.get('score', 0)}"
-                status_font = pygame.font.Font(config.title_font_path, int(20 * config.scale_y))
-                status_text = status_font.render(status, True, config.gray)
-                status_rect = status_text.get_rect(center=(config.screen_width/2, button.rect.centery + int(30 * config.scale_y)))
-                self.screen.blit(status_text, status_rect)
-            else:
-                status_font = pygame.font.Font(config.title_font_path, int(20 * config.scale_y))
-                status_text = status_font.render("Empty Slot", True, config.gray)
-                status_rect = status_text.get_rect(center=(config.screen_width/2, button.rect.centery + int(30 * config.scale_y)))
-                self.screen.blit(status_text, status_rect)
-        
-        # Draw back button
-        self.save_slot_buttons["back"].draw(self.screen)
+        self.save_file.draw_save_files(self.screen, self.save_slot_buttons, config)
     
     def draw_cutscene(self):
         self.screen.fill(config.black)
@@ -158,6 +152,10 @@ class Silksong:
         elif self.state == "game":
             self.draw_game()
         
+        # Draw transition overlay on top of everything
+        if self.transition_manager.active:
+            self.transition_manager.draw(self.screen)
+        
         pygame.display.flip()
 
     def update(self, dt):
@@ -166,6 +164,8 @@ class Silksong:
         Args:
             dt (float): Delta time since last update.
         """
+        # Update transition manager
+        self.transition_manager.update(dt)
 
         if self.state == "title screen":
             self.update_title_screen(dt)
@@ -184,13 +184,17 @@ class Silksong:
             if event.type == pygame.QUIT or self.state == "exit":
                 self.running = False
             
+            # Skip input handling during transitions
+            if self.transition_manager.active:
+                continue
+            
             # Handle settings menu events
             if self.state == "settings":
                 if self.settings_menu.handle_event(event):
                     continue
                 # Return to title screen if settings menu was closed
                 if not self.settings_menu.visible:
-                    self.state = "title screen"
+                    self.change_state("title screen")
                     continue
             
             if event.type == pygame.MOUSEBUTTONDOWN:
@@ -199,14 +203,14 @@ class Silksong:
                 if self.state == "title screen":
                     if self.buttons['start'].is_clicked(pos):
                         self.audio_manager.play_sfx("button_click")
-                        self.state = "save files"
+                        self.change_state("save files")
                     if self.buttons['exit'].is_clicked(pos):
                         self.audio_manager.play_sfx("button_click")
                         self.running = False
                     if self.buttons['settings'].is_clicked(pos):
                         self.audio_manager.play_sfx("button_click")
                         self.settings_menu.show()
-                        self.state = "settings"
+                        self.change_state("settings")
                 
                 elif self.state == "save files":
                     # Handle save slot selection
@@ -229,11 +233,11 @@ class Silksong:
                                     "inventory": []
                                 }
                             
-                            self.state = "game"  # Start the game
+                            self.change_state("game")  # Start the game with transition
                     
                     if self.save_slot_buttons["back"].is_clicked(pos):
                         self.audio_manager.play_sfx("button_click")
-                        self.state = "title screen"
+                        self.change_state("title screen")
     
     def reset():
         pass
