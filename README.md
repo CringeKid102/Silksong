@@ -1,2 +1,0 @@
-# Silksong
-Just Silksong
