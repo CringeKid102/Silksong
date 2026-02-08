@@ -18,11 +18,17 @@ class Button:
         """
         self.x = x
         self.y = y
-        self.text = text
+        self._text = text
         self.color = color
         
         # Load font
         self.font = pygame.font.Font(font_path, font_size)
+        
+        # Cache rendered text surface and rect
+        self._text_surface = None
+        self._text_rect = None
+        self._cached_rect = None
+        self._update_text_cache()
         
         # Interaction state
         self.active = True
@@ -31,12 +37,21 @@ class Button:
         self.was_hovering = False  # Track if we were hovering in previous frame
 
         # Pointer animation
-        pointer_sheet: str = "assets/images/pointer.png"
+        pointer_sheet = os.path.join(os.path.dirname(__file__), "../assets/images/pointer.png")
         self.pointer_anim = Animation(pointer_sheet, frame_width=36, frame_height=44)
         self._load_pointer_animations()
         
         # Start with normal state
         self.current_state = "normal"
+    
+    def _update_text_cache(self):
+        """Update cached text surface and rect."""
+        self._text_surface = self.font.render(self.text, True, self.color)
+        self._text_rect = self._text_surface.get_rect(center=(self.x, self.y))
+        # Cache collision rect
+        collision_rect = self._text_rect.copy()
+        collision_rect.height -= 10
+        self._cached_rect = collision_rect
     
     def _load_pointer_animations(self):
         """Load pointer animations from the spritesheet."""
@@ -84,18 +99,16 @@ class Button:
             # All other states (hover, pressed, release)
             pointer_frame = self.pointer_anim.get_current_frame()
         
-        # Draw text in the center
-        text_surf = self.font.render(self.text, True, self.color)
-        text_rect = text_surf.get_rect(center=(self.x, self.y))
-        screen.blit(text_surf, text_rect)
+        # Draw text in the center (use cached surface)
+        screen.blit(self._text_surface, self._text_rect)
         
         # Draw left pointer
-        left_rect = pointer_frame.get_rect(right=text_rect.left - 10, centery=self.y-7)
+        left_rect = pointer_frame.get_rect(right=self._text_rect.left - 10, centery=self.y-7)
         screen.blit(pointer_frame, left_rect)
         
         # Draw right pointer
         right_pointer = pygame.transform.flip(pointer_frame, True, False)
-        right_rect = right_pointer.get_rect(left=text_rect.right + 10, centery=self.y-7)
+        right_rect = right_pointer.get_rect(left=self._text_rect.right + 10, centery=self.y-7)
         screen.blit(right_pointer, right_rect)
     
     def update(self, dt: float):
@@ -105,9 +118,9 @@ class Button:
             dt (float): Delta time since last update.
         """
         
-        # Update pointer animation based on state
+        # Update pointer animation based on state (use cached rect)
         mouse_pos = pygame.mouse.get_pos()
-        is_hover = self._rect.collidepoint(mouse_pos) and self.active
+        is_hover = self._cached_rect.collidepoint(mouse_pos) and self.active
         
         if self.press_timer > 0:
             self.press_timer = max(0.0, self.press_timer - dt)
@@ -140,24 +153,10 @@ class Button:
             self.pointer_anim.update(dt)
 
     
-    def _get_rect(self) -> pygame.Rect:
-        """
-        Get the button's collision rect based on text bounds.
-        Returns:
-            pygame.Rect: The button's collision rectangle.
-        """
-        # Use the button's font to get text dimensions
-        text_surf = self.font.render(self.text, True, self.color)
-        text_rect = text_surf.get_rect(center=(self.x, self.y))
-        
-        # Reduce bottom rect to avoid extra padding
-        text_rect.height -= 10
-        return text_rect
-    
     @property
     def _rect(self) -> pygame.Rect:
-        """Get the button's collision rect."""
-        return self._get_rect()
+        """Get the button's collision rect from cache."""
+        return self._cached_rect
 
     def is_clicked(self, pos):
         """
@@ -167,7 +166,7 @@ class Button:
         Returns:
             bool: True if clicked, False otherwise.
         """
-        return self._rect.collidepoint(pos) and self.active
+        return self._cached_rect.collidepoint(pos) and self.active
     
     def is_hovered(self):
         """
@@ -176,7 +175,7 @@ class Button:
             bool: True if hovered, False otherwise.
         """
         mouse_pos = pygame.mouse.get_pos()
-        return self._rect.collidepoint(mouse_pos)
+        return self._cached_rect.collidepoint(mouse_pos)
     
     def press(self):
         """Trigger the button press animation."""
@@ -190,3 +189,15 @@ class Button:
         """
         self.cooldown = cooldown_time
         self.max_cooldown = cooldown_time
+    
+    @property
+    def text(self) -> str:
+        """Get the button text."""
+        return self._text
+    
+    @text.setter
+    def text(self, value: str):
+        """Set the button text and update cache."""
+        if self._text != value:
+            self._text = value
+            self._update_text_cache()

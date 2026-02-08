@@ -11,11 +11,24 @@ from slider import Slider
 from transition import TransitionManager, TransitionType
 from settings import SettingsMenu
 from save_file import SaveFile
+from hornet import Hornet
 
 # Initialize pygame
 pygame.init()
 
 class Silksong:
+
+    # Class-level image cache to avoid reloading
+    _image_cache = {}
+    
+    @classmethod
+    def _load_and_scale_image(cls, path, width, height):
+        """Load and scale an image with caching."""
+        cache_key = (path, width, height)
+        if cache_key not in cls._image_cache:
+            img = pygame.image.load(path)
+            cls._image_cache[cache_key] = pygame.transform.scale(img, (width, height))
+        return cls._image_cache[cache_key]
 
     def __init__(self):
         """Initialize the game."""
@@ -27,13 +40,36 @@ class Silksong:
         self.state = "title screen"
         self.clock = pygame.time.Clock()
         
-        # Load and scale title image
-        title_img = pygame.image.load(os.path.join(os.path.dirname(__file__), "../assets/images/Title.png"))
-        self.title_image = pygame.transform.scale(title_img, (int(880 * config.scale_x), int(440 * config.scale_y)))
+        # Load and scale title image using cache
+        title_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/Title.png")
+        self.title_image = self._load_and_scale_image(title_img_path, int(880 * config.scale_x), int(440 * config.scale_y))
         
-        # Load and scale background image
-        background_img = pygame.image.load(os.path.join(os.path.dirname(__file__), "../assets/images/Title Screen Bg.png"))
-        self.background_image = pygame.transform.scale(background_img, (config.screen_width, config.screen_height))
+        # Load and scale title element (needle)
+        title_needle_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0003_hornet_needle.png")
+        title_needle = self._load_and_scale_image(title_needle_path, int(186*config.scale_x), int(864*config.scale_y))
+        self.title_needle = title_needle
+
+        
+        # Load and scale title element (pin)
+        title_pin_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0002_lace_pin.png")
+        title_pin_scaled = self._load_and_scale_image(title_pin_path, int(94*config.scale_x), int(613*config.scale_y))
+        self.title_pin = pygame.transform.rotate(title_pin_scaled, -5)  # Rotate 15 degrees to the right (negative = clockwise)
+
+        # Load and scale title element (boulder)
+        title_boulder_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0000_bone_cliff_01.png")
+        self.title_boulder = self._load_and_scale_image(title_boulder_path, int(552*config.scale_x), int(236*config.scale_y))
+
+        # Load and scale title element (spike)
+        title_spike_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0001_bone_cliff_02.png")
+        self.title_spike = self._load_and_scale_image(title_spike_path, int(197*config.scale_x), int(142*config.scale_y))
+
+        # Load and scale title element (pin)
+        #title_pin = pygame.image.load(os.path.join(os.path.dirname(__file__), ""))
+        
+
+        # Load and scale background image using cache
+        background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/Title Screen Bg.png")
+        self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
         
         # Initialize audio manager
         self.audio_manager = AudioManager()
@@ -51,13 +87,27 @@ class Silksong:
         )
         
         # Create settings menu
-        self.settings_menu = SettingsMenu(config.screen_width, config.screen_height, self.audio_manager, Button)
+        self.settings_menu = SettingsMenu(config.screen_width, config.screen_height)
         self.settings_menu.game = self  # Link settings menu to game for save/load
         self.settings_menu.transition_manager = self.transition_manager  # Link transition manager to settings
+
+        # Create save file menu
+        self.save_file = SaveFile()
+        
+        # Initialize particle system for title screen effects
+        self.particle_system = ParticleSystem(config.screen_width, config.screen_height)
+        ember_image_path = os.path.join(os.path.dirname(__file__), "../assets/images/Ember Particle.png")
+        self.particle_system.load_ember_image(ember_image_path)
         
         # Create buttons
         self.create_buttons() # Normal buttons
-        self.create_save_slot_buttons() # Save slot buttons
+        
+        # Initialize player (Hornet)
+        self.player = None  # Will be created when game starts
+        
+        # Camera system
+        self.camera_x = 0
+        self.camera_y = 0
 
     def create_buttons(self):
         """Create buttons for the title screen."""
@@ -71,40 +121,45 @@ class Silksong:
             "settings": Button(config.screen_width/2, config.screen_height/2+shifty, "Options", config.white, config.title_font_path, button_font_size),
             "exit": Button(config.screen_width/2, config.screen_height/2 + button_spacing+shifty, "Exit", config.white, config.title_font_path, button_font_size),
             }
-    
-    def create_save_slot_buttons(self):
-        """Create buttons for save slot selection."""
-        button_spacing = int(150 * config.scale_y)
-        button_font_size = int(40 * config.scale_y)
-        
-        self.save_slot_buttons = {
-            1: Button(config.screen_width/2, config.screen_height/2 - button_spacing, "Slot 1", config.white, config.title_font_path, button_font_size),
-            2: Button(config.screen_width/2, config.screen_height/2, "Slot 2", config.white, config.title_font_path, button_font_size),
-            3: Button(config.screen_width/2, config.screen_height/2 + button_spacing, "Slot 3", config.white, config.title_font_path, button_font_size),
-            "back": Button(config.screen_width/2, config.screen_height/2 + button_spacing * 2, "Back", config.white, config.title_font_path, button_font_size),
-        }
 
     def update_title_screen(self, dt):
         for button in self.buttons.values():
             button.update(dt)
+        
+        # Enable ember spawning and update particle system
+        self.particle_system.enable_ember_spawning(True)
+        self.particle_system.update(dt)
     
     def update_settings(self, dt):
         self.settings_menu.update(dt)
     
     def update_save_files(self, dt):
-        for button in self.save_slot_buttons.values():
+        for button in self.save_file.save_slot_buttons.values():
             button.update(dt)
+        self.save_file.close_button.update(dt)
     
     def update_cutscene(self, dt):
         pass
 
     def update_game(self, dt):
-        pass
+        if self.player:
+            # Get keyboard state
+            keys = pygame.key.get_pressed()
+            camera_movement = self.player.handle_input(keys)
+            self.player.update(dt)
+            
+            # Update camera position based on player movement
+            if camera_movement:
+                self.camera_x += camera_movement[0] * dt
+                self.camera_y += camera_movement[1] * dt
     
     def change_state(self, new_state):
         """Change game state with black fade transition."""
         def on_state_change(target_state):
             self.state = target_state
+            # Refresh save slot cache when entering save files screen
+            if target_state == "save files":
+                self.save_file.refresh_slot_status()
         
         self.transition_manager.start_transition(
             target_state=new_state,
@@ -119,36 +174,50 @@ class Silksong:
         # Draw background
         self.screen.blit(self.background_image, (0, 0))
         
+        # Draw ember particles
+        self.particle_system.draw_particles(self.screen)
+        
         # Draw the Silksong title image
         title_rect = self.title_image.get_rect(center=(config.screen_width/2, int(config.screen_height/2 - 200 * config.scale_y)))
         self.screen.blit(self.title_image, title_rect)
         
+        # Draw title spikes (you can adjust positions as needed)
+        self.screen.blit(self.title_needle, (int(1500 * config.scale_x), int(175 * config.scale_y)))
+        self.screen.blit(self.title_pin, (int(1300 * config.scale_x), int(475 * config.scale_y)))
+        self.screen.blit(self.title_boulder, (int(1050 * config.scale_x), int(850 * config.scale_y)))
+        self.screen.blit(self.title_spike, (int(1050 * config.scale_x), int(850 * config.scale_y)))
+
         # Draw buttons
         for button in self.buttons.values():
             button.draw(self.screen)
                 
     def draw_settings(self):
-        self.screen.fill(config.dark_blue)
+        self.screen.blit(self.background_image, (0, 0))
         self.settings_menu.draw(self.screen, config.font)
     
-    def draw_save_files(self):
-        self.save_file.draw_save_files(self.screen, self.save_slot_buttons, config)
-    
     def draw_cutscene(self):
-        self.screen.fill(config.black)
+        self.screen.blit(self.background_image, (0, 0))
     
     def draw_game(self):
-        self.screen.fill(config.black)
+        # Draw background (could add parallax later)
+        self.screen.blit(self.background_image, (-self.camera_x * 0.5, -self.camera_y * 0.5))
+        
+        # Draw ground line for visual reference (with camera offset)
+        ground_y = config.screen_height - 100
+        pygame.draw.line(self.screen, (255, 255, 255), (-self.camera_x, ground_y - self.camera_y), (config.screen_width * 3 - self.camera_x, ground_y - self.camera_y), 2)
+        
+        # Draw player (player stays at fixed screen position)
+        if self.player:
+            self.player.draw(self.screen)
     
     def draw(self):
         """Render the game."""
-        self.screen.blit(self.background_image, (0, 0))
         if self.state == "title screen":
             self.draw_title_screen()
         elif self.state == "settings":
             self.draw_settings()
         elif self.state == "save files":
-            self.draw_save_files()
+            self.save_file.draw(self.screen)
         elif self.state == "cutscene":
             self.draw_cutscene()
         elif self.state == "game":
@@ -186,21 +255,23 @@ class Silksong:
             if event.type == pygame.QUIT or self.state == "exit":
                 self.running = False
             
+            # Temporary: Allow exiting with ESC key
+            if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                self.running = False
+            
             # Skip input handling during transitions
             if self.transition_manager.active:
                 continue
             
             # Handle settings menu events
-            if self.state == "settings":
-                
-                
+            if self.state == "settings":                
                 if self.settings_menu.handle_event(event):
                     continue
                 # Return to title screen if settings menu was closed
                 if not self.settings_menu.visible:
                     self.change_state("title screen")
                     continue
-            
+                
             if event.type == pygame.MOUSEBUTTONDOWN:
                 pos = pygame.mouse.get_pos()  # Mouse coordinates
 
@@ -217,36 +288,23 @@ class Silksong:
                         self.change_state("settings")
                 
                 elif self.state == "save files":
-                    # Handle save slot selection
-                    background_img = pygame.image.load(os.path.join(os.path.dirname(__file__), "../assets/images/Title Screen Bg.png"))
-                    self.background_image = pygame.transform.scale(background_img, (config.screen_width, config.screen_height))
-                    for slot_num in [1, 2, 3]:
-                        if self.save_slot_buttons[slot_num].is_clicked(pos):
-                            self.audio_manager.play_sfx("button_click")
-                            self.current_slot = slot_num
-                            
-                            # Try to load existing save
-                            loaded_state = self.save_file.load_game_file(slot_num)
-                            if loaded_state:
-                                self.game_state = loaded_state
-                            else:
-                                # Create new save file for this slot
-                                self.save_file.create_game_file(slot_num)
-                                self.game_state = {
-                                    "level": 1,
-                                    "score": 0,
-                                    "player_position": [0, 0],
-                                    "inventory": []
-                                }
-                            
-                            self.change_state("game")  # Start the game with transition
-                    
-                    if self.save_slot_buttons["back"].is_clicked(pos):
-                        self.audio_manager.play_sfx("button_click")
+                    action = self.save_file.handle_event()
+                    if action == "close":
+                        # Close button was clicked, return to title screen
                         self.change_state("title screen")
-    
-    def reset():
-        pass
+                    elif action and action.startswith("start_"):
+                        # Save slot was selected, start game
+                        slot_num = int(action.split("_")[1])
+                        # Create player when starting game
+                        start_x = config.screen_width // 2 - 40
+                        start_y = config.screen_height - 200
+                        self.player = Hornet(start_x, start_y, config.screen_width, config.screen_height)
+                        # Reset camera
+                        self.camera_x = 0
+                        self.camera_y = 0
+                        # Start game
+                        self.change_state("game")
+                    # Delete actions are handled within save_file.handle_event
 
     def run(self):
         while self.running:

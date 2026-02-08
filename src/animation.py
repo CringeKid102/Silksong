@@ -170,6 +170,10 @@ class Animation:
         if frame_count == 0:
             return
         
+        # Cache loop and pingpong flags to avoid dict lookups
+        loop = anim['loop']
+        pingpong = anim['pingpong']
+        
         self.elapsed += dt
         # Use while to support large dt values
         while self.elapsed >= durations[self.current_frame]:
@@ -184,7 +188,7 @@ class Animation:
                 continue
 
             # out of bounds handling
-            if anim['pingpong']:
+            if pingpong:
                 # Reverse direction
                 self.reverse = not self.reverse
                 if self.reverse:
@@ -193,7 +197,7 @@ class Animation:
                     self.current_frame = 1 if frame_count > 1 else 0
                 continue
 
-            if anim['loop']:
+            if loop:
                 # wrap
                 if self.current_frame >= frame_count:
                     self.current_frame = 0

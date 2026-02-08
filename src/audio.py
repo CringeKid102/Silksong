@@ -4,8 +4,22 @@ import json
 from typing import Dict, Optional
 
 class AudioManager:
+    _instance = None
+    _initialized = False
+    
+    def __new__(cls):
+        """Singleton pattern to ensure only one AudioManager instance exists."""
+        if cls._instance is None:
+            cls._instance = super(AudioManager, cls).__new__(cls)
+        return cls._instance
+    
     def __init__(self):
         """Initialize the audio manager."""
+        # Only initialize once
+        if AudioManager._initialized:
+            return
+        AudioManager._initialized = True
+        
         pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
 
         self.audio_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "audio"))

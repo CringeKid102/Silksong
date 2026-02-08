@@ -43,7 +43,7 @@ class Minigame:
         else:
             return (False, int((1 - success_rate) * 20))
 
-def KeyboardMinigame(Minigame):
+class KeyboardMinigame(Minigame):
     """A minigame where players must press specific keys in sequence."""
     def __init__(self, width, height, difficulty='normal'):
         super().__init__(width, height, difficulty)

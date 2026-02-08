@@ -1,12 +1,16 @@
 import pygame
 import random
 import math
+import os
 from typing import List, Dict, Tuple
 
 class ParticleSystem:
-    def __init__(self):
+    def __init__(self, screen_width=None, screen_height=None):
         """
         Initialize the particle system.
+        Args:
+            screen_width: Width of the screen for ember spawning
+            screen_height: Height of the screen for ember spawning
         """
         self.particles: List[Dict] = []
         self.float_texts: List[Dict] = []
@@ -14,6 +18,23 @@ class ParticleSystem:
         self.shake_amount = 0.0
         self.shake_time = 0.0
         self.shake_duration = 0.0
+        # Ember settings
+        self.screen_width = screen_width
+        self.screen_height = screen_height
+        self.ember_image = None
+        self.ember_spawn_timer = 0.0
+        self.ember_enabled = False
+        
+        # Surface cache for particle rendering
+        self._surface_cache = {}
+        
+    def load_ember_image(self, image_path):
+        """Load the ember particle image."""
+        self.ember_image = pygame.image.load(image_path)
+        
+    def enable_ember_spawning(self, enabled=True):
+        """Enable or disable automatic ember spawning."""
+        self.ember_enabled = enabled
 
     def spawn_sparks(self, x: float, y: float, count: int = 12, color: Tuple[int,int,int]=(255,200,100)):
         """
@@ -70,6 +91,37 @@ class ParticleSystem:
                 'type': 'smoke'
             })
 
+    def spawn_embers(self, x: float, y: float, count: int = 1, image=None):
+        """
+        Spawn ember particles that float from bottom left to top right.
+        Args:
+            x (float): X position to spawn embers.
+            y (float): Y position to spawn embers.
+            count (int): Number of embers to spawn.
+            image: Pygame surface to use as ember image.
+        """
+        MAX = 1000
+        available = max(0, MAX - len(self.particles))
+        to_spawn = min(count, available)
+        for _ in range(to_spawn):
+            life = random.uniform(15.0, 20.0)  # Much longer life to traverse the screen
+            # Velocity moves diagonally from bottom-left to top-right
+            vx = random.uniform(80, 120)  # Move right faster
+            vy = random.uniform(-120, -90)  # Move up faster
+            self.particles.append({
+                'x': x + random.uniform(-self.screen_width, 10),
+                'y': y + random.uniform(-self.screen_height, self.screen_height),
+                'vx': vx,
+                'vy': vy,
+                'life': life,
+                'initial_life': life,
+                'size': random.uniform(2, 5),
+                'color': None,
+                'gravity': 0,  # No gravity for floating embers
+                'type': 'ember',
+                'image': image
+            })
+
     def add_detection_popup(self, delta: int, x: float, y: float):
         """
         Add a floating text popup for damage or healing.
@@ -97,6 +149,7 @@ class ParticleSystem:
         Args:
             dt (float): Delta time since last update.
         """
+        # Update particles
         for p in list(self.particles):
             p['x'] += p['vx'] * dt
             p['y'] += p['vy'] * dt
@@ -105,6 +158,7 @@ class ParticleSystem:
             if p['life'] <= 0:
                 self.particles.remove(p)
 
+        # Update floating texts
         for ft in list(self.float_texts):
             ft['y'] += ft['vy'] * dt
             ft['time'] -= dt
@@ -112,7 +166,7 @@ class ParticleSystem:
             if ft['time'] <= 0:
                 self.float_texts.remove(ft)
         
-        # decay screen shake
+        # Decay screen shake
         if self.shake_time > 0:
             self.shake_time -= dt
             if self.shake_time <= 0:
@@ -121,6 +175,22 @@ class ParticleSystem:
                 self.shake_duration = 0.0
         else:
             self.shake_amount = max(0.0, self.shake_amount - 8.0 * dt)
+        
+        # Handle automatic ember spawning
+        if self.ember_enabled and self.ember_image and self.screen_width and self.screen_height:
+            self.ember_spawn_timer += dt
+            if self.ember_spawn_timer >= 0.2:  # Spawn every 0.25 seconds (faster)
+                self.ember_spawn_timer = 0.0
+                # Randomly choose to spawn from bottom edge or left edge
+                if random.choice([True, False]):
+                    # Spawn from bottom edge (anywhere along the bottom)
+                    spawn_x = random.uniform(0, self.screen_width)
+                    spawn_y = random.uniform(self.screen_height * 0.95, self.screen_height)
+                else:
+                    # Spawn from left edge (anywhere along the left side)
+                    spawn_x = random.uniform(0, self.screen_width * 0.05)
+                    spawn_y = random.uniform(0, self.screen_height)
+                self.spawn_embers(spawn_x, spawn_y, count=1, image=self.ember_image)
 
     def draw_particles(self, surface: pygame.Surface):
         """
@@ -131,17 +201,60 @@ class ParticleSystem:
         for p in self.particles:
             life_frac = max(0.0, min(1.0, p['life'] / max(0.001, p.get('initial_life', p['life']))))
             alpha = int(255 * life_frac)
-            if p['type'] == 'spark':
+            
+            if p['type'] == 'ember' and p.get('image'):
+                # Use image for ember particles
+                img = p['image']
+                # Scale image based on particle size
+                scale_factor = p['size'] / 3.0  # Adjust base scale as needed
+                cache_key = (id(img), scale_factor, alpha)
+                
+                if cache_key not in self._surface_cache:
+                    scaled_img = pygame.transform.scale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
+                    scaled_img.set_alpha(alpha)
+                    self._surface_cache[cache_key] = scaled_img
+                    # Limit cache size
+                    if len(self._surface_cache) > 100:
+                        # Remove oldest entries (first 20)
+                        for _ in range(20):
+                            self._surface_cache.pop(next(iter(self._surface_cache)))
+                else:
+                    scaled_img = self._surface_cache[cache_key]
+                
+                # Draw centered on particle position
+                surface.blit(scaled_img, (int(p['x']) - scaled_img.get_width()//2, int(p['y']) - scaled_img.get_height()//2))
+            elif p['type'] == 'spark':
                 r = max(1, int(p['size']))
-                s = pygame.Surface((r*2, r*2), pygame.SRCALPHA)
-                col = p['color'] + (alpha,)
-                pygame.draw.circle(s, col, (r, r), r)
+                cache_key = ('spark', r, p['color'], alpha)
+                
+                if cache_key not in self._surface_cache:
+                    s = pygame.Surface((r*2, r*2), pygame.SRCALPHA)
+                    col = p['color'] + (alpha,)
+                    pygame.draw.circle(s, col, (r, r), r)
+                    self._surface_cache[cache_key] = s
+                    if len(self._surface_cache) > 100:
+                        for _ in range(20):
+                            self._surface_cache.pop(next(iter(self._surface_cache)))
+                else:
+                    s = self._surface_cache[cache_key]
+                
                 surface.blit(s, (int(p['x'])-r, int(p['y'])-r))
             else:
                 r = max(1, int(p['size']))
-                s = pygame.Surface((r*2, r*2), pygame.SRCALPHA)
-                sc = p['color'] + (max(20, int(150 * life_frac)),)
-                pygame.draw.circle(s, sc, (r, r), r)
+                smoke_alpha = max(20, int(150 * life_frac))
+                cache_key = ('smoke', r, p['color'], smoke_alpha)
+                
+                if cache_key not in self._surface_cache:
+                    s = pygame.Surface((r*2, r*2), pygame.SRCALPHA)
+                    sc = p['color'] + (smoke_alpha,)
+                    pygame.draw.circle(s, sc, (r, r), r)
+                    self._surface_cache[cache_key] = s
+                    if len(self._surface_cache) > 100:
+                        for _ in range(20):
+                            self._surface_cache.pop(next(iter(self._surface_cache)))
+                else:
+                    s = self._surface_cache[cache_key]
+                
                 surface.blit(s, (int(p['x'])-r, int(p['y'])-r))
 
     def draw_float_texts(self, surface: pygame.Surface, font: pygame.font.Font):
@@ -165,6 +278,7 @@ class ParticleSystem:
         self.shake_amount = 0.0
         self.shake_time = 0.0
         self.shake_duration = 0.0
+        self._surface_cache.clear()
     
     def start_shake(self, amount: float, duration: float):
         """

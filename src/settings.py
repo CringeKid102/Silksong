@@ -4,6 +4,8 @@ import json
 import config
 from slider import Slider
 from transition import TransitionType
+from audio import AudioManager
+from button import Button
 
 class SettingsMenu:
     """
@@ -15,29 +17,26 @@ class SettingsMenu:
         button_class (class): Reference to the Button class for creating buttons.
     """
 
-    def __init__(self, width, height, audio_manager, button_class):
+    def __init__(self, width, height):
         """
         Initialize the settings menu.
         Args:
             width (int): Width of the game screen.
             height (int): Height of the game screen.
-            audio_manager (AudioManager): Reference to the game's audio manager.
-            button_class (class): Reference to the Button class for creating buttons.
         """
         self.width = width
         self.height = height
-        self.audio_manager = audio_manager
-        self.button_class = button_class
-        self.visible = False
+        self.visible = False                                                                   
         
+        # Initialize Audio manager
+        self.audio_manager = AudioManager()
+
         # Menu state
         self.current_menu = "options"  # options, game, audio, video, keyboard
         
-        # Load fonts
-        self.font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/Perpetua Regular.otf")
-        self.title_font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/TrajanPro-Regular.ttf")
-        self.font = pygame.font.Font(self.font_path, int(32 * config.scale_y))
-        self.title_font = pygame.font.Font(self.title_font_path, int(48 * config.scale_y))
+        # Use config's cached fonts instead of loading new ones
+        self.font = config.get_font(int(32 * config.scale_y))
+        self.title_font = config.get_title_font(int(48 * config.scale_y))
         self.button_spacing = int(80 * config.scale_y)
         self.button_font_size = int(40 * config.scale_y)
         self.shifty = int(80 * config.scale_y)
@@ -85,21 +84,21 @@ class SettingsMenu:
 
         
         self.options_buttons = {
-            'game': self.button_class(self.panel_x + 250, self.panel_y + self.shifty , "Game", config.white, config.title_font_path, self.button_font_size),
-            'audio': self.button_class(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing, "Audio", config.white, config.title_font_path, self.button_font_size),
-            'video': self.button_class(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing * 2, "Video", config.white, config.title_font_path, self.button_font_size),
-            'keyboard': self.button_class(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing * 3, "Keyboard", config.white, config.title_font_path, self.button_font_size),
+            'game': Button(self.panel_x + 250, self.panel_y + self.shifty , "Game", config.white, config.title_font_path, self.button_font_size),
+            'audio': Button(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing, "Audio", config.white, config.title_font_path, self.button_font_size),
+            'video': Button(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing * 2, "Video", config.white, config.title_font_path, self.button_font_size),
+            'keyboard': Button(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing * 3, "Keyboard", config.white, config.title_font_path, self.button_font_size),
         }
-        self.close_button = self.button_class(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.close_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
                                              "Back", config.white, config.title_font_path, self.button_font_size)
 
     def _init_game_menu(self):
         """Initialize game settings menu.""" 
         self.game_buttons = {
-            'language': self.button_class(self.panel_x + 250, self.panel_y + self.shifty + 25, "Language: English", config.white, config.title_font_path, self.button_font_size),
-            'camera_shake': self.button_class(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing + 25, "Camera Shake: ON", config.white, config.title_font_path, self.button_font_size),
+            'language': Button(self.panel_x + 250, self.panel_y + self.shifty + 25, "Language: English", config.white, config.title_font_path, self.button_font_size),
+            'camera_shake': Button(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing + 25, "Camera Shake: ON", config.white, config.title_font_path, self.button_font_size),
         }
-        self.game_back_button = self.button_class(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.game_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
                                                  "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _init_audio_menu(self):
@@ -115,7 +114,7 @@ class SettingsMenu:
             'music': Slider(slider_x, self.panel_y + 200, 350, 20, 0.0, 1.0,
                            volumes['music'], "Music Volume", self.audio_manager.set_music_volume),
         }
-        self.audio_back_button = self.button_class(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.audio_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
                                                   "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _init_video_menu(self):
@@ -126,13 +125,13 @@ class SettingsMenu:
             'brightness': Slider(slider_x, self.panel_y + 100, 350, 20, 0.0, 1.0,
                                  self.settings_data['brightness'], "Brightness", self._set_brightness),
         }
-        self.video_back_button = self.button_class(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.video_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
                                                   "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _init_keyboard_menu(self):
         """Initialize keyboard settings menu."""
         
-        self.keyboard_back_button = self.button_class(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.keyboard_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
                                                        "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _set_brightness(self, value):
@@ -214,19 +213,6 @@ class SettingsMenu:
             # Update slider positions to reflect loaded audio settings
             volumes = self.audio_manager.get_volumes()
             for key, slider in self.audio_sliders.items():
-                slider.value = volumes[key]
-                slider.update()
-            
-            return True
-        except Exception as e:
-            print(f"Load failed: {e}")
-            return False
-            self.game.best_time = save_data.get('best_time', 0)
-            self.game.difficulty = save_data.get('difficulty', 'normal')
-            
-            # Update slider positions to reflect loaded audio settings
-            volumes = self.audio_manager.get_volumes()
-            for key, slider in self.sliders.items():
                 slider.value = volumes[key]
                 slider.update()
             
@@ -516,3 +502,4 @@ class SettingsMenu:
         screen.blit(placeholder_text, placeholder_rect)
         
         self.keyboard_back_button.draw(screen)
+        

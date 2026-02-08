@@ -20,9 +20,42 @@ scale_y = screen_height / game_height
 # Fonts
 font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/Perpetua Regular.otf")
 title_font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/TrajanPro-Regular.ttf")
-font = pygame.font.Font(font_path, int(32 * scale_y))
-title_font = pygame.font.Font(title_font_path, int(48 * scale_y))
-super_title_font = pygame.font.Font(title_font_path, int(72 * scale_y))
+
+# Font cache for efficient reuse
+_font_cache = {}
+
+def get_font(size=None):
+    """Get regular font with caching."""
+    if size is None:
+        size = int(32 * scale_y)
+    key = ('font', size)
+    if key not in _font_cache:
+        _font_cache[key] = pygame.font.Font(font_path, size)
+    return _font_cache[key]
+
+def get_title_font(size=None):
+    """Get title font with caching."""
+    if size is None:
+        size = int(48 * scale_y)
+    key = ('title_font', size)
+    if key not in _font_cache:
+        _font_cache[key] = pygame.font.Font(title_font_path, size)
+    return _font_cache[key]
+
+def get_super_title_font(size=None):
+    """Get super title font with caching."""
+    if size is None:
+        size = int(72 * scale_y)
+    key = ('super_title_font', size)
+    if key not in _font_cache:
+        _font_cache[key] = pygame.font.Font(title_font_path, size)
+    return _font_cache[key]
+
+# Create default font instances (will be cached)
+font = get_font()
+title_font = get_title_font()
+super_title_font = get_super_title_font()
+
 # FPS
 fps = 60
 
