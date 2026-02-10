@@ -134,7 +134,6 @@ class Silksong:
         self.settings_menu.update(dt)
     
     def update_save_files(self, dt):
-        # Update all save file buttons (save slots, trash buttons, and close button)
         self.save_file.update(dt)
     
     def update_cutscene(self, dt):

@@ -77,24 +77,30 @@ class AudioManager:
     def load_sounds(self, sounds):
         """Load sound effects from the audio directory."""
         sfx_dir = os.path.join(self.audio_dir, "sfx")
-        os.makedirs(sfx_dir, exist_ok=True)
+        try:
+            os.makedirs(sfx_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Error creating sfx directory: {e}")
+            return
 
         for sound_name, sound_file in sounds.items():
             sound_loaded = False
             for ext in ['.wav', '.ogg', '.mp3']:
                 file_path = os.path.join(sfx_dir, f"{sound_file}{ext}")
-                if os.path.exists(file_path):
-                    try:
+                try:
+                    if os.path.exists(file_path):
                         self.sfx_sounds[sound_name] = pygame.mixer.Sound(file_path)
-                        # Audio loaded successfully
                         sound_loaded = True
                         break
-                    except Exception as e:
-                        print(f"Error loading sound {sound_name}: {e}")
-                        continue
+                except FileNotFoundError:
+                    # File doesn't exist, try next extension
+                    continue
+                except Exception as e:
+                    print(f"Error loading sound '{sound_name}' from {file_path}: {e}")
+                    continue
+            
             if not sound_loaded:
-                # Only log once during initialization
-                pass
+                print(f"Warning: Sound file '{sound_file}' not found in {sfx_dir}")
 
     def play_sfx(self, sound_name, volume_override=None):
         """Play a sound effect"""
@@ -118,22 +124,34 @@ class AudioManager:
     def play_music(self, music_name, loop=True, fade_in=0):
         """Play background music."""
         music_dir = os.path.join(self.audio_dir, "music")
-        os.makedirs(music_dir, exist_ok=True)
+        try:
+            os.makedirs(music_dir, exist_ok=True)
+        except Exception as e:
+            print(f"Error creating music directory: {e}")
+            return
 
+        music_loaded = False
         for ext in ['.mp3', '.ogg', '.wav']:
             music_path = os.path.join(music_dir, f"{music_name}{ext}")
-            if os.path.exists(music_path):
-                try:
+            try:
+                if os.path.exists(music_path):
                     pygame.mixer.music.load(music_path)
                     if fade_in > 0:
                         pygame.mixer.music.play(-1 if loop else 0, fade_ms=fade_in*1000)
                     else:
                         pygame.mixer.music.play(-1 if loop else 0)
                     pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
+                    music_loaded = True
                     return
-                except Exception as e:
-                    print(f"Error loading music {music_name}: {e}")
-                    continue
+            except FileNotFoundError:
+                # File doesn't exist, try next extension
+                continue
+            except Exception as e:
+                print(f"Error loading music '{music_name}' from {music_path}: {e}")
+                continue
+        
+        if not music_loaded:
+            print(f"Warning: Music file '{music_name}' not found in {music_dir}")
     
     def stop_music(self, fade_out: float = 0):
         """Stop background music."""

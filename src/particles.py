@@ -108,6 +108,9 @@ class ParticleSystem:
             # Velocity moves diagonally from bottom-left to top-right
             vx = random.uniform(80, 120)  # Move right faster
             vy = random.uniform(-120, -90)  # Move up faster
+            initial_size = random.uniform(2, 5)
+            # Random size change behavior
+            size_change_rate = random.uniform(-0.5, 0.5)  # Can grow or shrink
             self.particles.append({
                 'x': x + random.uniform(-self.screen_width, 10),
                 'y': y + random.uniform(-self.screen_height, self.screen_height),
@@ -115,12 +118,16 @@ class ParticleSystem:
                 'vy': vy,
                 'life': life,
                 'initial_life': life,
-                'size': random.uniform(2, 5),
+                'size': initial_size,
+                'initial_size': initial_size,
+                'size_change_rate': size_change_rate,
+                'min_size': 1.0,
+                'max_size': 8.0,
                 'color': None,
                 'gravity': 0,  # No gravity for floating embers
                 'type': 'ember',
                 'image': image,
-                'angle': random.uniform(-25, 25)  # Random rotation angle ±25 degrees
+                'angle': random.uniform(-20, 20)  # Random rotation angle ±25 degrees
             })
 
     def add_detection_popup(self, delta: int, x: float, y: float):
@@ -156,6 +163,13 @@ class ParticleSystem:
             p['y'] += p['vy'] * dt
             p['vy'] += p.get('gravity', 0) * dt
             p['life'] -= dt
+            
+            # Update size for particles that have size_change_rate
+            if 'size_change_rate' in p:
+                p['size'] += p['size_change_rate'] * dt
+                # Clamp size within bounds
+                p['size'] = max(p.get('min_size', 0.5), min(p.get('max_size', 10.0), p['size']))
+            
             if p['life'] <= 0:
                 self.particles.remove(p)
 
@@ -180,7 +194,7 @@ class ParticleSystem:
         # Handle automatic ember spawning
         if self.ember_enabled and self.ember_image and self.screen_width and self.screen_height:
             self.ember_spawn_timer += dt
-            if self.ember_spawn_timer >= 0.2:  # Spawn every 0.25 seconds (faster)
+            if self.ember_spawn_timer >= 0.1:  # Spawn every 0.1 seconds
                 self.ember_spawn_timer = 0.0
                 # Randomly choose to spawn from bottom edge or left edge
                 if random.choice([True, False]):

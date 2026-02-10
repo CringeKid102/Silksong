@@ -39,6 +39,9 @@ class Hornet:
         # Facing direction (for future sprite flipping)
         self.facing_right = True
         
+        # Audio manager instance
+        self.audio_manager = AudioManager()
+        
         # Camera velocity cache to avoid tuple creation each frame
         self._camera_velocity = [0, 0]
     
@@ -68,14 +71,23 @@ class Hornet:
         if keys[pygame.K_SPACE] and self.on_ground:
             self.velocity_y = self.jump_power
             self.on_ground = False
-            AudioManager.play_sfx("hornet_jump")
+            try:
+                self.audio_manager.play_sfx("hornet_jump")
+            except Exception:
+                pass  # Skip if sound doesn't exist
 
         # Attack
         if keys[pygame.K_j]:
-            AudioManager.play_sfx("hornet_attack")
+            try:
+                self.audio_manager.play_sfx("hornet_attack")
+            except Exception:
+                pass  # Skip if sound doesn't exist
 
         if keys[pygame.K_k]:
-            AudioManager.play_sfx("hornet_dash")
+            try:
+                self.audio_manager.play_sfx("hornet_dash")
+            except Exception:
+                pass  # Skip if sound doesn't exist
 
         if keys[pygame.K_h]:
             AudioManager.play_sfx("hornet_special")
