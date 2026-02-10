@@ -41,26 +41,26 @@ class Silksong:
         self.clock = pygame.time.Clock()
         
         # Load and scale title image using cache
-        title_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/Title.png")
+        title_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title.png")
         self.title_image = self._load_and_scale_image(title_img_path, int(880 * config.scale_x), int(440 * config.scale_y))
         
         # Load and scale title element (needle)
-        title_needle_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0003_hornet_needle.png")
+        title_needle_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0003_hornet_needle.png")
         title_needle = self._load_and_scale_image(title_needle_path, int(186*config.scale_x), int(864*config.scale_y))
         self.title_needle = title_needle
 
         
         # Load and scale title element (pin)
-        title_pin_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0002_lace_pin.png")
+        title_pin_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0002_lace_pin.png")
         title_pin_scaled = self._load_and_scale_image(title_pin_path, int(94*config.scale_x), int(613*config.scale_y))
         self.title_pin = pygame.transform.rotate(title_pin_scaled, -5)  # Rotate 15 degrees to the right (negative = clockwise)
 
         # Load and scale title element (boulder)
-        title_boulder_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0000_bone_cliff_01.png")
+        title_boulder_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0000_bone_cliff_01.png")
         self.title_boulder = self._load_and_scale_image(title_boulder_path, int(552*config.scale_x), int(236*config.scale_y))
 
         # Load and scale title element (spike)
-        title_spike_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet_title_screen_boneforest_0001_bone_cliff_02.png")
+        title_spike_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0001_bone_cliff_02.png")
         self.title_spike = self._load_and_scale_image(title_spike_path, int(197*config.scale_x), int(142*config.scale_y))
 
         # Load and scale title element (pin)
@@ -68,7 +68,7 @@ class Silksong:
         
 
         # Load and scale background image using cache
-        background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/Title Screen Bg.png")
+        background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title_screen_bg.png")
         self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
         
         # Initialize audio manager
@@ -96,7 +96,7 @@ class Silksong:
         
         # Initialize particle system for title screen effects
         self.particle_system = ParticleSystem(config.screen_width, config.screen_height)
-        ember_image_path = os.path.join(os.path.dirname(__file__), "../assets/images/Ember Particle.png")
+        ember_image_path = os.path.join(os.path.dirname(__file__), "../assets/images/ember_particle.png")
         self.particle_system.load_ember_image(ember_image_path)
         
         # Create buttons
@@ -134,9 +134,8 @@ class Silksong:
         self.settings_menu.update(dt)
     
     def update_save_files(self, dt):
-        for button in self.save_file.save_slot_buttons.values():
-            button.update(dt)
-        self.save_file.close_button.update(dt)
+        # Update all save file buttons (save slots, trash buttons, and close button)
+        self.save_file.update(dt)
     
     def update_cutscene(self, dt):
         pass

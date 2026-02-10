@@ -15,7 +15,7 @@ class Hornet:
             screen_height (int): Height of the game screen
         """
         # Load and scale player image
-        image_path = os.path.join(os.path.dirname(__file__), "../assets/images/Hornet.webp")
+        image_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet.webp")
         self.image = pygame.image.load(image_path)
         self.image = pygame.transform.scale(self.image, (80, 80))  # Scale to reasonable size
         
@@ -42,6 +42,11 @@ class Hornet:
         # Camera velocity cache to avoid tuple creation each frame
         self._camera_velocity = [0, 0]
     
+    def _load_hornet_animation(self):
+        """Load Hornet animations from spritesheet."""
+        # Placeholder for future animation loading
+        pass
+    
     def handle_input(self, keys):
         """Handle keyboard input for movement.
         Args:
@@ -59,14 +64,31 @@ class Hornet:
             self.velocity_x = self.speed
             self.facing_right = True
         
-        # Jumping (only if on ground)
+        # Jumping
         if keys[pygame.K_SPACE] and self.on_ground:
             self.velocity_y = self.jump_power
             self.on_ground = False
+            AudioManager.play_sfx("hornet_jump")
 
         # Attack
         if keys[pygame.K_j]:
             AudioManager.play_sfx("hornet_attack")
+
+        if keys[pygame.K_k]:
+            AudioManager.play_sfx("hornet_dash")
+
+        if keys[pygame.K_h]:
+            AudioManager.play_sfx("hornet_special")
+        
+        if keys[pygame.K_LSHIFT]:
+            AudioManager.play_sfx("hornet_heal")
+
+        if keys[pygame.K_w]:
+            # look up
+            pass
+        if keys[pygame.K_s]:
+            # look down
+            pass
             
         
         # Return camera movement (reuse cached list)

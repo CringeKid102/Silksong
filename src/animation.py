@@ -62,6 +62,18 @@ class Animation:
         x = self.margin + col * (self.frame_width + self.spacing)
         y = self.margin + row * (self.frame_height + self.spacing)
         rect = pygame.Rect(x, y, self.frame_width, self.frame_height)
+        
+        # Validate rectangle is within sprite sheet bounds
+        sheet_width = self.sprite_sheet.get_width()
+        sheet_height = self.sprite_sheet.get_height()
+        if rect.right > sheet_width or rect.bottom > sheet_height:
+            raise ValueError(
+                f"Frame at row={row}, col={col} is outside sprite sheet bounds. "
+                f"Frame rect: {rect}, Sheet size: {sheet_width}x{sheet_height}. "
+                f"Frame size: {self.frame_width}x{self.frame_height}, "
+                f"Margin: {self.margin}, Spacing: {self.spacing}"
+            )
+        
         frame_surf = self.sprite_sheet.subsurface(rect).copy()
         if self.scale != 1.0:
             new_size = (int(self.frame_width * self.scale), int(self.frame_height * self.scale))

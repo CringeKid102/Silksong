@@ -119,7 +119,8 @@ class ParticleSystem:
                 'color': None,
                 'gravity': 0,  # No gravity for floating embers
                 'type': 'ember',
-                'image': image
+                'image': image,
+                'angle': random.uniform(-25, 25)  # Random rotation angle ±25 degrees
             })
 
     def add_detection_popup(self, delta: int, x: float, y: float):
@@ -207,22 +208,25 @@ class ParticleSystem:
                 img = p['image']
                 # Scale image based on particle size
                 scale_factor = p['size'] / 3.0  # Adjust base scale as needed
-                cache_key = (id(img), scale_factor, alpha)
+                angle = p.get('angle', 0)
+                cache_key = (id(img), scale_factor, alpha, angle)
                 
                 if cache_key not in self._surface_cache:
                     scaled_img = pygame.transform.scale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
-                    scaled_img.set_alpha(alpha)
-                    self._surface_cache[cache_key] = scaled_img
+                    # Rotate the image
+                    rotated_img = pygame.transform.rotate(scaled_img, angle)
+                    rotated_img.set_alpha(alpha)
+                    self._surface_cache[cache_key] = rotated_img
                     # Limit cache size
                     if len(self._surface_cache) > 100:
                         # Remove oldest entries (first 20)
                         for _ in range(20):
                             self._surface_cache.pop(next(iter(self._surface_cache)))
                 else:
-                    scaled_img = self._surface_cache[cache_key]
+                    rotated_img = self._surface_cache[cache_key]
                 
                 # Draw centered on particle position
-                surface.blit(scaled_img, (int(p['x']) - scaled_img.get_width()//2, int(p['y']) - scaled_img.get_height()//2))
+                surface.blit(rotated_img, (int(p['x']) - rotated_img.get_width()//2, int(p['y']) - rotated_img.get_height()//2))
             elif p['type'] == 'spark':
                 r = max(1, int(p['size']))
                 cache_key = ('spark', r, p['color'], alpha)
