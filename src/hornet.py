@@ -95,17 +95,22 @@ class Hornet:
         if keys[pygame.K_LSHIFT]:
             AudioManager.play_sfx("hornet_heal")
 
+        # Camera look up/down (vertical camera movement)
+        camera_vertical_speed = 200  # Camera vertical movement speed
+        camera_velocity_y = 0
+        
+        # Look up
         if keys[pygame.K_w]:
-            # look up
-            pass
+            camera_velocity_y = -camera_vertical_speed  # Negative moves camera up
+            
+        # Look down
         if keys[pygame.K_s]:
-            # look down
-            pass
+            camera_velocity_y = camera_vertical_speed  # Positive moves camera down
             
         
         # Return camera movement (reuse cached list)
         self._camera_velocity[0] = self.velocity_x
-        self._camera_velocity[1] = 0
+        self._camera_velocity[1] = camera_velocity_y
         return self._camera_velocity
     
     def update(self, dt):

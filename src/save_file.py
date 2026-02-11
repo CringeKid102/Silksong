@@ -42,6 +42,7 @@ class SaveSlotButton:
         else:
             self.hover_pointer = None
         
+        
         # Font for "New File" text
         self.font = config.get_font(int(36 * config.scale_y))
         self.title_font = config.get_title_font(int(28 * config.scale_y))
@@ -285,11 +286,12 @@ class SaveFile:
         played_file_path = os.path.join(os.path.dirname(__file__), "../assets/images/mosscave_area_art.png")
         self.played_file = self._load_and_scale_image(played_file_path, int(353*config.scale_x), int(640*config.scale_y))
         
+
         # Create custom save slot buttons
         slot_width = int(353 * config.scale_x)
         slot_height = int(640 * config.scale_y)
         slot_spacing = int(400 * config.scale_x)
-        start_x = int(config.screen_width / 2 - slot_spacing * 1.5)
+        start_x = int(config.screen_width / 2 - slot_spacing * 1.60)
         start_y = int(200 * config.scale_y)
         
         self.save_slot_buttons = {}
@@ -299,7 +301,7 @@ class SaveFile:
             x = start_x + (i - 1) * slot_spacing
             save_exists = self.slot_status_cache.get(i) is not None
             bg_img = self.played_file if save_exists else None
-            
+
             self.save_slot_buttons[i] = SaveSlotButton(
                 x, start_y, slot_width, slot_height, i, save_exists, bg_img
             )
@@ -530,13 +532,15 @@ class SaveFile:
         # Draw title
         title_text = config.super_title_font.render("Select Save Slot", True, config.white)
         title_rect = title_text.get_rect(center=(config.screen_width/2, int(100 * config.scale_y)))
-        screen.blit(title_text, title_rect)  
+        screen.blit(title_text, title_rect) 
         
         # Draw save slot buttons with status and trash buttons
         for slot_num in [1, 2, 3, 4]:
             # Draw save slot button
             button = self.save_slot_buttons[slot_num]
             button.draw(screen)
+            
+
             
             # Draw save info text if save exists
             game_state = self.slot_status_cache.get(slot_num)
@@ -562,6 +566,15 @@ class SaveFile:
             
             # Draw trash button
             self.trash_buttons[slot_num].draw(screen)
+        # Load borders for all save files
+        borders_path = os.path.join(os.path.dirname(__file__), "../assets/images/save_file_border.png")
+        self.borders = self._load_and_scale_image(borders_path, int(377*config.scale_x), int(669*config.scale_y))
+        slot_spacing = int(400 * config.scale_x)
+        start_x = int(config.screen_width / 2 - slot_spacing * 1.60)
+        start_y = int(200 * config.scale_y)
+        #Draw borders
+        for i in range(0,4):
+            screen.blit(self.borders, (start_x + i * slot_spacing , start_y))
         
         # Draw back button
         self.close_button.draw(screen)

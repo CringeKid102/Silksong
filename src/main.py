@@ -70,6 +70,7 @@ class Silksong:
         # Load and scale background image using cache
         background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title_screen_bg.png")
         self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
+
         
         # Initialize audio manager
         self.audio_manager = AudioManager()
