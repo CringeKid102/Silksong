@@ -199,15 +199,18 @@ class Silksong:
     
     def draw_game(self):
         # Draw background (could add parallax later)
-        self.screen.blit(self.background_image, (-self.camera_x * 0.5, -self.camera_y * 0.5))
+        # Get the look offset from the player (camera pans up/down)
+        look_y = self.player.camera_look_y if self.player else 0
+        
+        self.screen.blit(self.background_image, (-self.camera_x * 0.5, -self.camera_y * 0.5 - look_y * 0.5))
         
         # Draw ground line for visual reference (with camera offset)
         ground_y = config.screen_height - 100
-        pygame.draw.line(self.screen, (255, 255, 255), (-self.camera_x, ground_y - self.camera_y), (config.screen_width * 3 - self.camera_x, ground_y - self.camera_y), 2)
+        pygame.draw.line(self.screen, (255, 255, 255), (-self.camera_x, ground_y - self.camera_y - look_y), (config.screen_width * 3 - self.camera_x, ground_y - self.camera_y - look_y), 2)
         
-        # Draw player (player stays at fixed screen position)
+        # Draw player (offset by look_y so player moves with the world)
         if self.player:
-            self.player.draw(self.screen)
+            self.player.draw(self.screen, look_y_offset=-look_y)
     
     def draw(self):
         """Render the game."""

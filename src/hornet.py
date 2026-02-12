@@ -44,6 +44,14 @@ class Hornet:
         
         # Camera velocity cache to avoid tuple creation each frame
         self._camera_velocity = [0, 0]
+        
+        # Look up/down system
+        self.look_hold_timer = 0.0        # How long W/S has been held
+        self.look_hold_threshold = 1.0    # Seconds before camera starts panning
+        self.camera_look_y = 0.0          # Current look offset
+        self.max_look_distance = 300.0    # Maximum pixels the camera can pan
+        self.look_speed = 250.0           # Camera pan speed once activated
+        self.look_direction = 0           # -1 = up, 1 = down, 0 = none
     
     def _load_hornet_animation(self):
         """Load Hornet animations from spritesheet."""
@@ -95,22 +103,27 @@ class Hornet:
         if keys[pygame.K_LSHIFT]:
             AudioManager.play_sfx("hornet_heal")
 
-        # Camera look up/down (vertical camera movement)
-        camera_vertical_speed = 200  # Camera vertical movement speed
-        camera_velocity_y = 0
-        
-        # Look up
+        # Look up/down — requires holding key for 1 second before camera pans
+        looking = False
         if keys[pygame.K_w]:
-            camera_velocity_y = -camera_vertical_speed  # Negative moves camera up
-            
-        # Look down
-        if keys[pygame.K_s]:
-            camera_velocity_y = camera_vertical_speed  # Positive moves camera down
-            
+            looking = True
+            if self.look_direction != -1:
+                # Started pressing up, reset timer
+                self.look_hold_timer = 0.0
+                self.look_direction = -1
+        elif keys[pygame.K_s]:
+            looking = True
+            if self.look_direction != 1:
+                # Started pressing down, reset timer
+                self.look_hold_timer = 0.0
+                self.look_direction = 1
+        else:
+            self.look_direction = 0
+            self.look_hold_timer = 0.0
         
         # Return camera movement (reuse cached list)
         self._camera_velocity[0] = self.velocity_x
-        self._camera_velocity[1] = camera_velocity_y
+        self._camera_velocity[1] = 0
         return self._camera_velocity
     
     def update(self, dt):
@@ -118,6 +131,21 @@ class Hornet:
         Args:
             dt (float): Delta time in seconds
         """
+        # Update look hold timer and camera look offset
+        if self.look_direction != 0:
+            self.look_hold_timer += dt
+            if self.look_hold_timer >= self.look_hold_threshold:
+                # Pan the camera in the look direction
+                self.camera_look_y += self.look_direction * self.look_speed * dt
+                # Clamp to max distance
+                self.camera_look_y = max(-self.max_look_distance, min(self.max_look_distance, self.camera_look_y))
+        else:
+            # Smoothly return camera to center when not looking
+            if abs(self.camera_look_y) > 1.0:
+                self.camera_look_y *= 0.85  # Ease back to center
+            else:
+                self.camera_look_y = 0.0
+        
         # Don't move horizontally - camera handles that
         # Only apply vertical movement (jumping/gravity)
         
@@ -136,17 +164,22 @@ class Hornet:
             self.rect.top = 0
             self.velocity_y = 0
     
-    def draw(self, screen):
+    def draw(self, screen, look_y_offset=0):
         """Draw the player character.
         Args:
             screen: pygame display surface
+            look_y_offset (float): Vertical offset for camera look panning
         """
+        # Calculate draw position with look offset
+        draw_rect = self.rect.copy()
+        draw_rect.y += look_y_offset
+        
         # Flip image based on facing direction
         if self.facing_right:
             flipped_image = pygame.transform.flip(self.image, True, False)
-            screen.blit(flipped_image, self.rect)
+            screen.blit(flipped_image, draw_rect)
         else:
-            screen.blit(self.image, self.rect)
+            screen.blit(self.image, draw_rect)
     
     def reset_position(self, x, y):
         """Reset player to a specific position.
