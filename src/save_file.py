@@ -291,7 +291,7 @@ class SaveFile:
         slot_width = int(353 * config.scale_x)
         slot_height = int(640 * config.scale_y)
         slot_spacing = int(400 * config.scale_x)
-        start_x = int(config.screen_width / 2 - slot_spacing * 1.60)
+        start_x = int(config.screen_width / 2 - 2 * slot_spacing + 14)  # Need to figure out how to scale the 14 pixel offset for the border
         start_y = int(200 * config.scale_y)
         
         self.save_slot_buttons = {}
@@ -570,8 +570,8 @@ class SaveFile:
         borders_path = os.path.join(os.path.dirname(__file__), "../assets/images/save_file_border.png")
         self.borders = self._load_and_scale_image(borders_path, int(377*config.scale_x), int(669*config.scale_y))
         slot_spacing = int(400 * config.scale_x)
-        start_x = int(config.screen_width / 2 - slot_spacing * 1.60)
-        start_y = int(200 * config.scale_y)
+        start_x = int(config.screen_width / 2 - 2 * slot_spacing)
+        start_y = int(200 * config.scale_y - 14) # Need to figure out how to scale the 14 pixel offset
         #Draw borders
         for i in range(0,4):
             screen.blit(self.borders, (start_x + i * slot_spacing , start_y))
