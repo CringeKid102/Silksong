@@ -52,6 +52,13 @@ class Hornet:
         self.max_look_distance = 300.0    # Maximum pixels the camera can pan
         self.look_speed = 250.0           # Camera pan speed once activated
         self.look_direction = 0           # -1 = up, 1 = down, 0 = none
+        
+        # Health system
+        self.max_health = 4
+        self.health = 4
+        self.heal_amount = 3  # Amount of health restored per heal
+        self.max_silk = 9 # Seconds between heals
+        self.silk = 9
     
     def _load_hornet_animation(self):
         """Load Hornet animations from spritesheet."""
@@ -100,8 +107,9 @@ class Hornet:
         if keys[pygame.K_h]:
             AudioManager.play_sfx("hornet_special")
         
+        # Healing with left shift
         if keys[pygame.K_LSHIFT]:
-            AudioManager.play_sfx("hornet_heal")
+            self.try_heal()
 
         # Look up/down — requires holding key for 1 second before camera pans
         looking = False
@@ -126,11 +134,34 @@ class Hornet:
         self._camera_velocity[1] = 0
         return self._camera_velocity
     
+    def try_heal(self):
+        """Attempt to heal the player if cooldown has elapsed."""
+        if self.heal_timer <= 0 and self.health < self.max_health:
+            # Heal the player
+            self.health = min(self.health + self.heal_amount, self.max_health)
+            self.heal_timer = self.heal_cooldown
+            # Play heal sound
+            try:
+                AudioManager.play_sfx("hornet_heal")
+            except Exception:
+                pass  # Skip if sound doesn't exist
+    
+    def take_damage(self, damage):
+        """Apply damage to the player.
+        Args:
+            damage (int): Amount of damage to take
+        """
+        self.health = max(0, self.health - damage)
+    
     def update(self, dt):
         """Update player position and physics.
         Args:
             dt (float): Delta time in seconds
         """
+        # Update heal cooldown timer
+        if self.heal_timer > 0:
+            self.heal_timer -= dt
+        
         # Update look hold timer and camera look offset
         if self.look_direction != 0:
             self.look_hold_timer += dt
