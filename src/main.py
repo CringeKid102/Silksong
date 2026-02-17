@@ -27,6 +27,10 @@ class Silksong:
         cache_key = (path, width, height)
         if cache_key not in cls._image_cache:
             img = pygame.image.load(path)
+            if img.get_alpha() is not None:
+                img = img.convert_alpha()
+            else:
+                img = img.convert()
             cls._image_cache[cache_key] = pygame.transform.scale(img, (width, height))
         return cls._image_cache[cache_key]
 
@@ -68,7 +72,7 @@ class Silksong:
         
 
         # Load and scale background image using cache
-        background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title_screen_bg.png")
+        background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title_screen_bg.jpg")
         self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
 
         
@@ -193,6 +197,10 @@ class Silksong:
     def draw_settings(self):
         self.screen.blit(self.background_image, (0, 0))
         self.settings_menu.draw(self.screen, config.font)
+
+    def draw_save_file(self):
+        self.screen.blit(self.background_image, (0, 0))
+        self.save_file.draw(self.screen)
     
     def draw_cutscene(self):
         self.screen.blit(self.background_image, (0, 0))
@@ -219,7 +227,7 @@ class Silksong:
         elif self.state == "settings":
             self.draw_settings()
         elif self.state == "save files":
-            self.save_file.draw(self.screen)
+            self.draw_save_file()
         elif self.state == "cutscene":
             self.draw_cutscene()
         elif self.state == "game":

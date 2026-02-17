@@ -398,7 +398,6 @@ class SettingsMenu:
     
     def update(self, dt):
         if self.visible:
-            mouse_pos = pygame.mouse.get_pos()
             self.close_button.update(dt)
             
             if self.current_menu == "options":
@@ -427,7 +426,6 @@ class SettingsMenu:
         overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
         overlay.fill((0, 0, 0, 180))
         screen.blit(overlay, (0, 0))
-
 
         # Draw title
         title = config.super_title_font.render("Options", True, (255, 255, 255))

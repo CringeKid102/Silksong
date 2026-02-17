@@ -31,7 +31,7 @@ class SaveSlotButton:
         self.save_exists = save_exists
         self.background_img = background_img
         self.rect = pygame.Rect(x, y, width, height)
-        
+
         # Load cursor pointer for hover effect (different from button.py pointer)
         cursor_path = os.path.join(os.path.dirname(__file__), "../assets/images/Cursor.png")
         if os.path.exists(cursor_path):
@@ -68,18 +68,18 @@ class SaveSlotButton:
             # Draw background image
             screen.blit(self.background_img, (self.x, self.y))
         else:
-            # Draw empty slot with "New File" text
-            pygame.draw.rect(screen, config.dark_gray, self.rect)
-            pygame.draw.rect(screen, config.gray, self.rect, 3)  # Border
-            
-            new_file_text = self.font.render("New File", True, config.white)
+            # Draw transparent empty slot with "NEW GAME" text
+            new_file_text = self.font.render("NEW GAME", True, config.white)
             text_rect = new_file_text.get_rect(center=self.rect.center)
             screen.blit(new_file_text, text_rect)
         
         # Draw border when hovering
         if self.is_hovering:
-            pygame.draw.rect(screen, config.white, self.rect, 4)
-            
+            # Draw semi-transparent overlay
+            overlay = pygame.Surface((self.width, self.height), pygame.SRCALPHA)
+            overlay.fill((255, 255, 255, 180))
+            screen.blit(overlay, (self.x, self.y))
+
             # Draw cursor pointers on both sides
             if self.hover_pointer:
                 # Left pointer
@@ -526,9 +526,7 @@ class SaveFile:
         Draw the save file selection screen.
         Args:
             screen: Pygame screen surface to draw on.
-        """
-        screen.fill(config.dark_blue)
-        
+        """        
         # Draw title
         title_text = config.super_title_font.render("Select Save Slot", True, config.white)
         title_rect = title_text.get_rect(center=(config.screen_width/2, int(100 * config.scale_y)))
@@ -545,10 +543,6 @@ class SaveFile:
             # Draw save info text if save exists
             game_state = self.slot_status_cache.get(slot_num)
             if game_state:
-                # Draw slot number above the save
-                slot_text = config.get_title_font(int(32 * config.scale_y)).render(f"Slot {slot_num}", True, config.white)
-                slot_rect = slot_text.get_rect(centerx=button.rect.centerx, bottom=button.rect.top - int(10 * config.scale_y))
-                screen.blit(slot_text, slot_rect)
                 
                 # Draw level and score info on the save image
                 level_text = self.status_font.render(f"Level {game_state.get('level', 1)}", True, config.white)
@@ -558,11 +552,6 @@ class SaveFile:
                 score_text = self.status_font.render(f"Score: {game_state.get('score', 0)}", True, config.white)
                 score_rect = score_text.get_rect(centerx=button.rect.centerx, top=level_rect.bottom + int(10 * config.scale_y))
                 screen.blit(score_text, score_rect)
-            else:
-                # Draw slot number for empty slots
-                slot_text = config.get_title_font(int(32 * config.scale_y)).render(f"Slot {slot_num}", True, config.white)
-                slot_rect = slot_text.get_rect(centerx=button.rect.centerx, bottom=button.rect.top - int(10 * config.scale_y))
-                screen.blit(slot_text, slot_rect)
             
             # Draw trash button
             self.trash_buttons[slot_num].draw(screen)
