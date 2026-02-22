@@ -54,9 +54,9 @@ class Slider:
         pygame.draw.rect(surface, (100, 100, 100), self.rect, border_radius=self.rect.height//2)
         fill_width = int((self.value - self.min_val) / (self.max_val - self.min_val) * self.rect.width)
         fill_rect = pygame.Rect(self.rect.x, self.rect.y, fill_width, self.rect.height)
-        pygame.draw.rect(surface, (0, 150, 255), fill_rect, border_radius=self.rect.height//2)
-        handle_color = (255, 255, 255) if not self.dragging else (200, 200, 200)
+        pygame.draw.rect(surface, (255, 255, 255), fill_rect, border_radius=self.rect.height//2)
+        handle_color = (230, 230, 230) if not self.dragging else (200, 200, 200)
         pygame.draw.rect(surface, handle_color, self.handle_rect, border_radius=5)
         if self.label and font:
             text = font.render(f"{self.label}: {int(self.value * 100)}%", True, (255, 255, 255))
-            surface.blit(text, (self.rect.x, self.rect.y - 25))
+            surface.blit(text, (self.rect.x, self.rect.y - 35))

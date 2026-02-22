@@ -20,7 +20,12 @@ class AudioManager:
             return
         AudioManager._initialized = True
         
-        pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        self._audio_available = True
+        try:
+            pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+        except Exception as e:
+            self._audio_available = False
+            print(f"Warning: Audio disabled ({e})")
 
         self.audio_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "audio"))
 
@@ -30,7 +35,7 @@ class AudioManager:
         self.sfx_volume = 0.8
 
         # Audio channels
-        self.sfx_channels = [pygame.mixer.Channel(i) for i in range(8)]
+        self.sfx_channels = [pygame.mixer.Channel(i) for i in range(8)] if self._audio_available else []
         self.current_channel = 0
         self.sfx_sounds = {}
 
@@ -104,6 +109,8 @@ class AudioManager:
 
     def play_sfx(self, sound_name, volume_override=None):
         """Play a sound effect"""
+        if not self._audio_available:
+            return
         if sound_name not in self.sfx_sounds:
             return
         
@@ -123,6 +130,8 @@ class AudioManager:
     
     def play_music(self, music_name, loop=True, fade_in=0):
         """Play background music."""
+        if not self._audio_available:
+            return
         music_dir = os.path.join(self.audio_dir, "music")
         try:
             os.makedirs(music_dir, exist_ok=True)
@@ -155,6 +164,8 @@ class AudioManager:
     
     def stop_music(self, fade_out: float = 0):
         """Stop background music."""
+        if not self._audio_available:
+            return
         if fade_out > 0:
             pygame.mixer.music.fadeout(int(fade_out * 1000))
         else:
@@ -162,12 +173,14 @@ class AudioManager:
     
     def set_master_volume(self, volume: float):
         self.master_volume = max(0.0, min(1.0, volume))
-        pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
+        if self._audio_available:
+            pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
         self.save_settings()
     
     def set_music_volume(self, volume: float):
         self.music_volume = max(0.0, min(1.0, volume))
-        pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
+        if self._audio_available:
+            pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
         self.save_settings()
     
     def set_sfx_volume(self, volume: float):
@@ -178,4 +191,6 @@ class AudioManager:
         return {'master': self.master_volume, 'music': self.music_volume, 'sfx': self.sfx_volume}
     
     def is_music_playing(self) -> bool:
+        if not self._audio_available:
+            return False
         return pygame.mixer.music.get_busy()

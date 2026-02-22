@@ -35,7 +35,7 @@ class SettingsMenu:
         self.current_menu = "options"  # options, game, audio, video, keyboard
         
         # Use config's cached fonts instead of loading new ones
-        self.font = config.get_font(int(32 * config.scale_y))
+        self.font = config.get_font(int(40 * config.scale_y))
         self.title_font = config.get_title_font(int(48 * config.scale_y))
         self.button_spacing = int(80 * config.scale_y)
         self.button_font_size = int(40 * config.scale_y)
@@ -107,11 +107,11 @@ class SettingsMenu:
         volumes = self.audio_manager.get_volumes()
         
         self.audio_sliders = {
-            'master': Slider(slider_x, self.panel_y + 80, 350, 20, 0.0, 1.0,
+            'master': Slider(slider_x, self.panel_y + 80, 350, 10, 0.0, 1.0,
                             volumes['master'], "Master Volume", self.audio_manager.set_master_volume),
-            'sfx': Slider(slider_x, self.panel_y + 140, 350, 20, 0.0, 1.0,
+            'sfx': Slider(slider_x, self.panel_y + 160, 350, 10, 0.0, 1.0,
                            volumes['sfx'], "Sound Volume", self.audio_manager.set_sfx_volume),
-            'music': Slider(slider_x, self.panel_y + 200, 350, 20, 0.0, 1.0,
+            'music': Slider(slider_x, self.panel_y + 240, 350, 10, 0.0, 1.0,
                            volumes['music'], "Music Volume", self.audio_manager.set_music_volume),
         }
         self.audio_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
@@ -122,7 +122,7 @@ class SettingsMenu:
         slider_x = self.panel_x + 50
         
         self.video_sliders = {
-            'brightness': Slider(slider_x, self.panel_y + 100, 350, 20, 0.0, 1.0,
+            'brightness': Slider(slider_x, self.panel_y + 80, 350, 10, 0.0, 1.0,
                                  self.settings_data['brightness'], "Brightness", self._set_brightness),
         }
         self.video_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
@@ -427,35 +427,35 @@ class SettingsMenu:
         overlay.fill((0, 0, 0, 180))
         screen.blit(overlay, (0, 0))
 
-        # Draw title
-        title = config.super_title_font.render("Options", True, (255, 255, 255))
-        title_rect = title.get_rect(center=(self.panel_rect.centerx, self.panel_rect.y - 30))
-        screen.blit(title, title_rect)
-
         if self.current_menu == "options":
-            self._draw_options_menu(screen, font)
+            self._draw_options_menu(screen)
         elif self.current_menu == "game":
-            self._draw_game_menu(screen, font)
+            self._draw_game_menu(screen)
         elif self.current_menu == "audio":
-            self._draw_audio_menu(screen, font)
+            self._draw_audio_menu(screen)
         elif self.current_menu == "video":
-            self._draw_video_menu(screen, font)
+            self._draw_video_menu(screen)
         elif self.current_menu == "keyboard":
-            self._draw_keyboard_menu(screen, font)
+            self._draw_keyboard_menu(screen)
 
 # TODO: Create one parent function to draw menus (copilot will do this)
 
-    def _draw_options_menu(self, screen, font):
+    def _draw_options_menu(self, screen):
         """Draw the options menu."""
+        # Draw title
+        title = self.title_font.render("Options", True, config.white)
+        title_rect = title.get_rect(center=(self.panel_rect.centerx, self.panel_rect.y - 30))
+        screen.blit(title, title_rect)
         for button in self.options_buttons.values():
             button.draw(screen)
         
         self.close_button.draw(screen)
     
-    def _draw_game_menu(self, screen, font):
+    def _draw_game_menu(self, screen):
         """Draw the game menu."""
-        menu_label = font.render("Game Settings", True, (200, 200, 200))
-        screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 50))
+        menu_label = self.title_font.render("Game Settings", True, config.white)
+        menu_label_rect = menu_label.get_rect(center=(self.panel_rect.centerx, self.panel_rect.y - 30))
+        screen.blit(menu_label, menu_label_rect)
         
         # Update button text based on current settings
         shake_text = "Camera Shake: ON" if self.settings_data['camera_shake'] else "Camera Shake: OFF"
@@ -469,33 +469,36 @@ class SettingsMenu:
         
         self.game_back_button.draw(screen)
     
-    def _draw_audio_menu(self, screen, font):
+    def _draw_audio_menu(self, screen):
         """Draw the audio menu."""
-        menu_label = font.render("Audio Settings", True, (200, 200, 200))
-        screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 30))
+        menu_label = self.title_font.render("Audio Settings", True, config.white)
+        menu_label_rect = menu_label.get_rect(center=(self.panel_rect.centerx, self.panel_rect.y - 30))
+        screen.blit(menu_label, menu_label_rect)
         
         for slider in self.audio_sliders.values():
-            slider.draw(screen, font)
+            slider.draw(screen, self.font)
         
         self.audio_back_button.draw(screen)
     
-    def _draw_video_menu(self, screen, font):
+    def _draw_video_menu(self, screen):
         """Draw the video menu."""
-        menu_label = font.render("Video Settings", True, (200, 200, 200))
-        screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 50))
+        menu_label = self.title_font.render("Video Settings", True, config.white)
+        menu_label_rect = menu_label.get_rect(center=(self.panel_rect.centerx, self.panel_rect.y - 30))
+        screen.blit(menu_label, menu_label_rect)
         
         for slider in self.video_sliders.values():
-            slider.draw(screen, font)
+            slider.draw(screen, self.font)
         
         self.video_back_button.draw(screen)
     
-    def _draw_keyboard_menu(self, screen, font):
+    def _draw_keyboard_menu(self, screen):
         """Draw the keyboard menu."""
-        menu_label = font.render("Keyboard Settings", True, (200, 200, 200))
-        screen.blit(menu_label, (self.panel_x + 20, self.panel_y + 50))
+        menu_label = self.title_font.render("Keyboard Settings", True, config.white)
+        menu_label_rect = menu_label.get_rect(center=(self.panel_rect.centerx, self.panel_rect.y - 30))
+        screen.blit(menu_label, menu_label_rect)
         
         # Placeholder text for keyboard functions
-        placeholder_text = font.render("[Keyboard Functions Image]", True, config.white)
+        placeholder_text = self.font.render("[Keyboard Functions Image]", True, config.white)
         placeholder_rect = placeholder_text.get_rect(center=(self.panel_rect.centerx, self.panel_y + 150))
         screen.blit(placeholder_text, placeholder_rect)
         

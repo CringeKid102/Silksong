@@ -30,7 +30,7 @@ class ParticleSystem:
         
     def load_ember_image(self, image_path):
         """Load the ember particle image."""
-        self.ember_image = pygame.image.load(image_path)
+        self.ember_image = pygame.image.load(image_path).convert_alpha()
         
     def enable_ember_spawning(self, enabled=True):
         """Enable or disable automatic ember spawning."""
@@ -158,7 +158,8 @@ class ParticleSystem:
             dt (float): Delta time since last update.
         """
         # Update particles
-        for p in list(self.particles):
+        alive_particles = []
+        for p in self.particles:
             p['x'] += p['vx'] * dt
             p['y'] += p['vy'] * dt
             p['vy'] += p.get('gravity', 0) * dt
@@ -170,16 +171,19 @@ class ParticleSystem:
                 # Clamp size within bounds
                 p['size'] = max(p.get('min_size', 0.5), min(p.get('max_size', 10.0), p['size']))
             
-            if p['life'] <= 0:
-                self.particles.remove(p)
+            if p['life'] > 0:
+                alive_particles.append(p)
+        self.particles = alive_particles
 
         # Update floating texts
-        for ft in list(self.float_texts):
+        alive_texts = []
+        for ft in self.float_texts:
             ft['y'] += ft['vy'] * dt
             ft['time'] -= dt
             ft['alpha'] = max(0, int(255 * (ft['time'] / max(0.01, ft.get('duration', 1.0)))))
-            if ft['time'] <= 0:
-                self.float_texts.remove(ft)
+            if ft['time'] > 0:
+                alive_texts.append(ft)
+        self.float_texts = alive_texts
         
         # Decay screen shake
         if self.shake_time > 0:
@@ -223,7 +227,7 @@ class ParticleSystem:
                 # Scale image based on particle size
                 scale_factor = p['size'] / 3.0  # Adjust base scale as needed
                 angle = p.get('angle', 0)
-                cache_key = (id(img), scale_factor, alpha, angle)
+                cache_key = (id(img), round(scale_factor, 2), alpha // 8, int(angle))
                 
                 if cache_key not in self._surface_cache:
                     scaled_img = pygame.transform.scale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))

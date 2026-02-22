@@ -1,7 +1,6 @@
 import pygame
 import os
 from audio import AudioManager
-from animation import Animation
 
 class Hornet:
     """Player character class with movement and jumping."""
@@ -16,8 +15,9 @@ class Hornet:
         """
         # Load and scale player image
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet.webp")
-        self.image = pygame.image.load(image_path)
+        self.image = pygame.image.load(image_path).convert_alpha()
         self.image = pygame.transform.scale(self.image, (80, 80))  # Scale to reasonable size
+        self.image_flipped = pygame.transform.flip(self.image, True, False)
         
         self.rect = self.image.get_rect()
         self.rect.x = x
@@ -57,8 +57,16 @@ class Hornet:
         self.max_health = 4
         self.health = 4
         self.heal_amount = 3  # Amount of health restored per heal
-        self.max_silk = 9 # Seconds between heals
-        self.silk = 9
+        self.heal_cooldown = 9.0  # Seconds between heals
+        self.heal_timer = 0.0
+
+        # Input cooldowns to prevent SFX spam from held keys
+        self.attack_cooldown = 0.18
+        self.dash_cooldown = 0.22
+        self.special_cooldown = 0.45
+        self._attack_timer = 0.0
+        self._dash_timer = 0.0
+        self._special_timer = 0.0
     
     def _load_hornet_animation(self):
         """Load Hornet animations from spritesheet."""
@@ -92,26 +100,32 @@ class Hornet:
                 pass  # Skip if sound doesn't exist
 
         # Attack
-        if keys[pygame.K_j]:
+        if keys[pygame.K_j] and self._attack_timer <= 0.0:
+            self._attack_timer = self.attack_cooldown
             try:
                 self.audio_manager.play_sfx("hornet_attack")
             except Exception:
                 pass  # Skip if sound doesn't exist
 
-        if keys[pygame.K_k]:
+        if keys[pygame.K_k] and self._dash_timer <= 0.0:
+            self._dash_timer = self.dash_cooldown
             try:
                 self.audio_manager.play_sfx("hornet_dash")
             except Exception:
                 pass  # Skip if sound doesn't exist
 
-        if keys[pygame.K_h]:
-            AudioManager.play_sfx("hornet_special")
+        if keys[pygame.K_h] and self._special_timer <= 0.0:
+            self._special_timer = self.special_cooldown
+            try:
+                self.audio_manager.play_sfx("hornet_special")
+            except Exception:
+                pass  # Skip if sound doesn't exist
         
         # Healing with left shift
         if keys[pygame.K_LSHIFT]:
-            self.try_heal()
+            self.heal()
 
-        # Look up/down — requires holding key for 1 second before camera pans
+        # Look up/down
         looking = False
         if keys[pygame.K_w]:
             looking = True
@@ -134,15 +148,15 @@ class Hornet:
         self._camera_velocity[1] = 0
         return self._camera_velocity
     
-    def try_heal(self):
+    def heal(self):
         """Attempt to heal the player if cooldown has elapsed."""
-        if self.heal_timer <= 0 and self.health < self.max_health:
+        if self.heal_timer <= 0.0 and self.health < self.max_health:
             # Heal the player
             self.health = min(self.health + self.heal_amount, self.max_health)
             self.heal_timer = self.heal_cooldown
             # Play heal sound
             try:
-                AudioManager.play_sfx("hornet_heal")
+                self.audio_manager.play_sfx("hornet_heal")
             except Exception:
                 pass  # Skip if sound doesn't exist
     
@@ -158,9 +172,15 @@ class Hornet:
         Args:
             dt (float): Delta time in seconds
         """
-        # Update heal cooldown timer
-        if self.heal_timer > 0:
-            self.heal_timer -= dt
+        # Update cooldown timers
+        if self.heal_timer > 0.0:
+            self.heal_timer = max(0.0, self.heal_timer - dt)
+        if self._attack_timer > 0.0:
+            self._attack_timer = max(0.0, self._attack_timer - dt)
+        if self._dash_timer > 0.0:
+            self._dash_timer = max(0.0, self._dash_timer - dt)
+        if self._special_timer > 0.0:
+            self._special_timer = max(0.0, self._special_timer - dt)
         
         # Update look hold timer and camera look offset
         if self.look_direction != 0:
@@ -207,8 +227,7 @@ class Hornet:
         
         # Flip image based on facing direction
         if self.facing_right:
-            flipped_image = pygame.transform.flip(self.image, True, False)
-            screen.blit(flipped_image, draw_rect)
+            screen.blit(self.image_flipped, draw_rect)
         else:
             screen.blit(self.image, draw_rect)
     
