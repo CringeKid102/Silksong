@@ -8,20 +8,22 @@ class Hornet:
     def __init__(self, x, y, screen_width, screen_height):
         """Initialize Hornet player character.
         Args:
-            x (float): Initial x position
-            y (float): Initial y position
+            x (float): Initial x position (sprite bottom-center X)
+            y (float): Initial y position (sprite bottom-center Y)
             screen_width (int): Width of the game screen
             screen_height (int): Height of the game screen
         """
         # Load and scale player image
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
-        self.image = pygame.transform.scale(self.image, (80, 80))  # Scale to reasonable size
+        source_width, source_height = self.image.get_size()
+        scale_factor = 0.25
+        scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
+        self.image = pygame.transform.scale(self.image, scaled_size)
         self.image_flipped = pygame.transform.flip(self.image, True, False)
         
         self.rect = self.image.get_rect()
-        self.rect.x = x
-        self.rect.y = y
+        self.rect.midbottom = (x, y)
         
         # Movement attributes
         self.velocity_x = 0
@@ -34,7 +36,7 @@ class Hornet:
         # Screen boundaries
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.ground_level = screen_height - 100  # Ground position
+        self.ground_level = screen_height // 2 + self.rect.width  # Ground position
         
         # Facing direction (for future sprite flipping)
         self.facing_right = True
@@ -47,10 +49,10 @@ class Hornet:
         
         # Look up/down system
         self.look_hold_timer = 0.0        # How long W/S has been held
-        self.look_hold_threshold = 1.0    # Seconds before camera starts panning
+        self.look_hold_threshold = 0.25   # Seconds before camera starts panning
         self.camera_look_y = 0.0          # Current look offset
         self.max_look_distance = 300.0    # Maximum pixels the camera can pan
-        self.look_speed = 250.0           # Camera pan speed once activated
+        self.look_speed = 520.0           # Camera pan speed once activated
         self.look_direction = 0           # -1 = up, 1 = down, 0 = none
         
         # Health system
@@ -107,6 +109,7 @@ class Hornet:
             except Exception:
                 pass  # Skip if sound doesn't exist
 
+        # Dash
         if keys[pygame.K_k] and self._dash_timer <= 0.0:
             self._dash_timer = self.dash_cooldown
             try:
@@ -114,6 +117,7 @@ class Hornet:
             except Exception:
                 pass  # Skip if sound doesn't exist
 
+        # Special
         if keys[pygame.K_h] and self._special_timer <= 0.0:
             self._special_timer = self.special_cooldown
             try:
@@ -234,11 +238,10 @@ class Hornet:
     def reset_position(self, x, y):
         """Reset player to a specific position.
         Args:
-            x (float): New x position
-            y (float): New y position
+            x (float): New x position (sprite bottom-center X)
+            y (float): New y position (sprite bottom-center Y)
         """
-        self.rect.x = x
-        self.rect.y = y
+        self.rect.midbottom = (x, y)
         self.velocity_x = 0
         self.velocity_y = 0
         self.on_ground = False

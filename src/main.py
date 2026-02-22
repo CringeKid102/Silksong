@@ -95,6 +95,7 @@ class Silksong:
         self.settings_menu = SettingsMenu(config.screen_width, config.screen_height)
         self.settings_menu.game = self  # Link settings menu to game for save/load
         self.settings_menu.transition_manager = self.transition_manager  # Link transition manager to settings
+        self.settings_menu.load_progress()
 
         # Create save file menu
         self.save_file = SaveFile()
@@ -209,12 +210,23 @@ class Silksong:
         # Draw background (could add parallax later)
         # Get the look offset from the player (camera pans up/down)
         look_y = self.player.camera_look_y if self.player else 0
-        
-        self.screen.blit(self.background_image, (-self.camera_x * 0.5, -self.camera_y * 0.5 - look_y * 0.5))
+
+        bg_width, bg_height = self.background_image.get_size()
+        bg_x = int(-self.camera_x * 0.5)
+        bg_y = int(-self.camera_y * 0.5 - look_y * 0.5)
+
+        # Tile background to prevent side-edge artifacts when camera offsets shift
+        base_x = (bg_x % bg_width) - bg_width
+        base_y = (bg_y % bg_height) - bg_height
+        for x_offset in (0, bg_width, bg_width * 2):
+            for y_offset in (0, bg_height, bg_height * 2):
+                self.screen.blit(self.background_image, (base_x + x_offset, base_y + y_offset))
         
         # Draw ground line for visual reference (with camera offset)
-        ground_y = config.screen_height - 100
-        pygame.draw.line(self.screen, (255, 255, 255), (-self.camera_x, ground_y - self.camera_y - look_y), (config.screen_width * 3 - self.camera_x, ground_y - self.camera_y - look_y), 2)
+        hornet_width = self.player.rect.width if self.player else 0
+        ground_y = config.screen_height // 2 + hornet_width
+        line_y = int(ground_y - self.camera_y - look_y)
+        pygame.draw.line(self.screen, (255, 255, 255), (int(-self.camera_x), line_y), (int(config.screen_width * 3 - self.camera_x), line_y), 2)
         
         # Draw player (offset by look_y so player moves with the world)
         if self.player:
@@ -232,6 +244,15 @@ class Silksong:
             self.draw_cutscene()
         elif self.state == "game":
             self.draw_game()
+
+        # Apply brightness setting to the rendered scene (1.0 = normal, 0.0 = fully dark)
+        brightness = self.settings_menu.settings_data.get('brightness', 0.8)
+        brightness = max(0.0, min(1.0, brightness))
+        if brightness < 1.0:
+            darkness_alpha = int((1.0 - brightness) * 255)
+            brightness_overlay = pygame.Surface((config.screen_width, config.screen_height), pygame.SRCALPHA)
+            brightness_overlay.fill((0, 0, 0, darkness_alpha))
+            self.screen.blit(brightness_overlay, (0, 0))
         
         # Draw transition overlay on top of everything
         if self.transition_manager.active:
@@ -264,8 +285,8 @@ class Silksong:
         for event in pygame.event.get():
             if event.type == pygame.QUIT or self.state == "exit":
                 self.running = False
-            
-            # Temporary: Allow exiting with ESC key
+
+            # Temporary: allow quitting with ESC from any state
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 self.running = False
             
@@ -281,7 +302,7 @@ class Silksong:
                 if not self.settings_menu.visible:
                     self.change_state("title screen")
                     continue
-                
+
             if event.type == pygame.MOUSEBUTTONDOWN:
                 pos = pygame.mouse.get_pos()  # Mouse coordinates
 
@@ -306,9 +327,10 @@ class Silksong:
                         # Save slot was selected, start game
                         slot_num = int(action.split("_")[1])
                         # Create player when starting game
-                        start_x = config.screen_width // 2 - 40
-                        start_y = config.screen_height - 200
-                        self.player = Hornet(start_x, start_y, config.screen_width, config.screen_height)
+                        start_x = config.screen_width // 2
+                        self.player = Hornet(start_x, 0, config.screen_width, config.screen_height)
+                        self.player.reset_position(start_x, self.player.ground_level)
+                        self.player.on_ground = True
                         # Reset camera
                         self.camera_x = 0
                         self.camera_y = 0

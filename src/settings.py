@@ -66,7 +66,7 @@ class SettingsMenu:
         self._init_keyboard_menu()
         
         # Save file path
-        self.save_path = os.path.join(os.path.dirname(__file__), "log.json")
+        self.save_path = os.path.join(os.path.dirname(__file__), "game_progress.json")
         
         # Reference to the main game object
         self.game = None
@@ -137,37 +137,47 @@ class SettingsMenu:
     def _set_brightness(self, value):
         """Set brightness value."""
         self.settings_data['brightness'] = value
+        self.save_progress()
     
     def _toggle_camera_shake(self):
         """Toggle camera shake setting."""
         self.settings_data['camera_shake'] = not self.settings_data['camera_shake']
+        self.save_progress()
     
     def _toggle_language(self):
         """Toggle language setting."""
         languages = ['english', 'french', 'spanish']  # Add more languages as needed
         current_index = languages.index(self.settings_data['language'])
         self.settings_data['language'] = languages[(current_index + 1) % len(languages)]
+        self.save_progress()
     
     def save_progress(self):
         """Save game progress including audio settings and game data."""
-        if not self.game:
-            return False
-        
         try:
             # Make sure directory exists
             os.makedirs(os.path.dirname(self.save_path), exist_ok=True)
+
+            existing_data = {}
+            if os.path.exists(self.save_path):
+                with open(self.save_path, 'r') as f:
+                    existing_data = json.load(f)
             
             # Gather all data to save
             save_data = {
+                **existing_data,
                 'audio_settings': self.audio_manager.get_volumes(),
                 'game_settings': self.settings_data,
-                'currency': getattr(self.game, 'currency', 0),
-                'perks': getattr(self.game, 'perks', {}),
-                'unlocked_perks': list(getattr(self.game, 'unlocked_perks', set())),
-                'best_objectives': getattr(self.game, 'best_objectives', 0),
-                'best_time': getattr(self.game, 'best_time', 0),
-                'difficulty': getattr(self.game, 'difficulty', 'normal')
             }
+
+            if self.game:
+                save_data.update({
+                    'currency': getattr(self.game, 'currency', 0),
+                    'perks': getattr(self.game, 'perks', {}),
+                    'unlocked_perks': list(getattr(self.game, 'unlocked_perks', set())),
+                    'best_objectives': getattr(self.game, 'best_objectives', 0),
+                    'best_time': getattr(self.game, 'best_time', 0),
+                    'difficulty': getattr(self.game, 'difficulty', 'normal')
+                })
             
             with open(self.save_path, 'w') as f:
                 json.dump(save_data, f, indent=2)
@@ -179,9 +189,6 @@ class SettingsMenu:
     
     def load_progress(self):
         """Load game progress and apply audio settings and game data."""
-        if not self.game:
-            return False
-            
         try:
             if not os.path.exists(self.save_path):
                 return False
@@ -201,14 +208,20 @@ class SettingsMenu:
             # Restore game settings
             game_settings = save_data.get('game_settings', {})
             self.settings_data.update(game_settings)
+
+            # Keep slider values synced with loaded settings
+            if 'brightness' in self.video_sliders:
+                self.video_sliders['brightness'].value = self.settings_data.get('brightness', 0.8)
+                self.video_sliders['brightness'].update()
             
             # Restore game progress
-            self.game.currency = save_data.get('currency', 0)
-            self.game.perks = save_data.get('perks', {})
-            self.game.unlocked_perks = set(save_data.get('unlocked_perks', []))
-            self.game.best_objectives = save_data.get('best_objectives', 0)
-            self.game.best_time = save_data.get('best_time', 0)
-            self.game.difficulty = save_data.get('difficulty', 'normal')
+            if self.game:
+                self.game.currency = save_data.get('currency', 0)
+                self.game.perks = save_data.get('perks', {})
+                self.game.unlocked_perks = set(save_data.get('unlocked_perks', []))
+                self.game.best_objectives = save_data.get('best_objectives', 0)
+                self.game.best_time = save_data.get('best_time', 0)
+                self.game.difficulty = save_data.get('difficulty', 'normal')
             
             # Update slider positions to reflect loaded audio settings
             volumes = self.audio_manager.get_volumes()
@@ -225,6 +238,7 @@ class SettingsMenu:
         self.visible = True
         self.current_menu = "options"
         self.pending_menu = None
+        self.load_progress()
         volumes = self.audio_manager.get_volumes()
         for key, slider in self.audio_sliders.items():
             slider.value = volumes[key]
@@ -322,8 +336,16 @@ class SettingsMenu:
     
     def _handle_audio_menu(self, event):
         """Handle events for the audio menu."""
+        previous_values = {key: slider.value for key, slider in self.audio_sliders.items()}
         for slider in self.audio_sliders.values():
             slider.handle_event(event)
+
+        values_changed = any(abs(self.audio_sliders[key].value - previous_values[key]) > 0.0001 for key in self.audio_sliders)
+        if values_changed:
+            self.audio_manager.set_master_volume(self.audio_sliders['master'].value)
+            self.audio_manager.set_sfx_volume(self.audio_sliders['sfx'].value)
+            self.audio_manager.set_music_volume(self.audio_sliders['music'].value)
+            self.save_progress()
         
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.audio_back_button.is_clicked(event.pos):

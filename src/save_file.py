@@ -560,7 +560,7 @@ class SaveFile:
         self.borders = self._load_and_scale_image(borders_path, int(377*config.scale_x), int(669*config.scale_y))
         slot_spacing = int(400 * config.scale_x)
         start_x = int(config.screen_width / 2 - 2 * slot_spacing)
-        start_y = int(200 * config.scale_y - 14) # Need to figure out how to scale the 14 pixel offset
+        start_y = int(187 * config.scale_y) # Need to figure out how to scale the 14 pixel offset
         #Draw borders
         for i in range(0,4):
             screen.blit(self.borders, (start_x + i * slot_spacing , start_y))

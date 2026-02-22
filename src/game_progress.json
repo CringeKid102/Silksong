@@ -3,5 +3,16 @@
     "master": 0.7,
     "music": 1.0,
     "sfx": 1.0
-  }
+  },
+  "game_settings": {
+    "language": "english",
+    "camera_shake": true,
+    "brightness": 0.8057142857142857
+  },
+  "currency": 0,
+  "perks": {},
+  "unlocked_perks": [],
+  "best_objectives": 0,
+  "best_time": 0,
+  "difficulty": "normal"
 }

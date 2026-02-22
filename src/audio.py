@@ -175,6 +175,7 @@ class AudioManager:
         self.master_volume = max(0.0, min(1.0, volume))
         if self._audio_available:
             pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
+            self._refresh_sfx_channel_volumes()
         self.save_settings()
     
     def set_music_volume(self, volume: float):
@@ -185,7 +186,15 @@ class AudioManager:
     
     def set_sfx_volume(self, volume: float):
         self.sfx_volume = max(0.0, min(1.0, volume))
+        if self._audio_available:
+            self._refresh_sfx_channel_volumes()
         self.save_settings()
+
+    def _refresh_sfx_channel_volumes(self):
+        """Apply current master/sfx volume to all mixer channels."""
+        channel_volume = self.sfx_volume * self.master_volume
+        for channel in self.sfx_channels:
+            channel.set_volume(channel_volume)
     
     def get_volumes(self) -> Dict[str, float]:
         return {'master': self.master_volume, 'music': self.music_volume, 'sfx': self.sfx_volume}
