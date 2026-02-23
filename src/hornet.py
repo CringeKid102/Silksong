@@ -56,8 +56,8 @@ class Hornet:
         self.look_direction = 0           # -1 = up, 1 = down, 0 = none
         
         # Health system
-        self.max_health = 4
-        self.health = 4
+        self.max_health = 5
+        self.health = 5
         self.heal_amount = 3  # Amount of health restored per heal
         self.heal_cooldown = 9.0  # Seconds between heals
         self.heal_timer = 0.0

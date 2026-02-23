@@ -543,16 +543,7 @@ class SaveFile:
             # Draw save info text if save exists
             game_state = self.slot_status_cache.get(slot_num)
             if game_state:
-                
-                # Draw level and score info on the save image
-                level_text = self.status_font.render(f"Level {game_state.get('level', 1)}", True, config.white)
-                level_rect = level_text.get_rect(centerx=button.rect.centerx, top=button.rect.top + int(20 * config.scale_y))
-                screen.blit(level_text, level_rect)
-                
-                score_text = self.status_font.render(f"Score: {game_state.get('score', 0)}", True, config.white)
-                score_rect = score_text.get_rect(centerx=button.rect.centerx, top=level_rect.bottom + int(10 * config.scale_y))
-                screen.blit(score_text, score_rect)
-            
+                pass
             # Draw trash button
             self.trash_buttons[slot_num].draw(screen)
         # Load borders for all save files

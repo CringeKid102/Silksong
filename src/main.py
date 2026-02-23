@@ -75,6 +75,19 @@ class Silksong:
         background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title_screen_bg.jpg")
         self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
 
+        # Load custom cursor image
+        self.cursor_image = None
+        self.cursor_hotspot = (0, 0)
+        cursor_candidates = [
+            os.path.join(os.path.dirname(__file__), "../assets/images/cursor.png"),
+            os.path.join(os.path.dirname(__file__), "../assets/images/Cursor.png"),
+        ]
+        for cursor_path in cursor_candidates:
+            if os.path.exists(cursor_path):
+                self.cursor_image = pygame.image.load(cursor_path).convert_alpha()
+                break
+        pygame.mouse.set_visible(self.cursor_image is None)
+
         
         # Initialize audio manager
         self.audio_manager = AudioManager()
@@ -114,6 +127,21 @@ class Silksong:
         # Camera system
         self.camera_x = 0
         self.camera_y = 0
+        self.mouse_locked = False
+
+    def _update_mouse_lock(self):
+        """Lock mouse during gameplay and release it in non-game states."""
+        if self.state == "game":
+            if not self.mouse_locked:
+                pygame.event.set_grab(True)
+                pygame.mouse.get_rel()  # Reset relative movement accumulator
+                self.mouse_locked = True
+            # Keep cursor pinned to center so it cannot drift
+            pygame.mouse.set_pos((config.screen_width // 2, config.screen_height // 2))
+        else:
+            if self.mouse_locked:
+                pygame.event.set_grab(False)
+                self.mouse_locked = False
 
     def create_buttons(self):
         """Create buttons for the title screen."""
@@ -234,6 +262,11 @@ class Silksong:
     
     def draw(self):
         """Render the game."""
+        if self.cursor_image:
+            pygame.mouse.set_visible(False)
+        else:
+            pygame.mouse.set_visible(self.state != "game")
+
         if self.state == "title screen":
             self.draw_title_screen()
         elif self.state == "settings":
@@ -257,6 +290,11 @@ class Silksong:
         # Draw transition overlay on top of everything
         if self.transition_manager.active:
             self.transition_manager.draw(self.screen)
+
+        # Draw custom cursor on top of all UI
+        if self.cursor_image and self.state != "game":
+            mouse_x, mouse_y = pygame.mouse.get_pos()
+            self.screen.blit(self.cursor_image, (mouse_x - self.cursor_hotspot[0], mouse_y - self.cursor_hotspot[1]))
         
         pygame.display.flip()
 
@@ -266,6 +304,8 @@ class Silksong:
         Args:
             dt (float): Delta time since last update.
         """
+        self._update_mouse_lock()
+
         # Update transition manager
         self.transition_manager.update(dt)
 
