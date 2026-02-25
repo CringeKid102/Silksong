@@ -27,6 +27,7 @@ class MossGrub:
         
         # Movement attributes
         self.velocity_x = 0
+        self.velocity_y = 0
         self.speed = 150  # Horizontal movement speed (pixels per second)
         self.gravity = 1800  # Gravity acceleration (pixels per second squared)
         self.on_ground = False
@@ -70,10 +71,6 @@ class MossGrub:
             max_x (int): right boundary
             min_x (int): left boundary
         """
-        # Update cooldown timers
-        if self._attack_timer > 0.0:
-            self._attack_timer = max(0.0, self._attack_timer - dt)
-        
         # Apply gravity
         self.velocity_y += self.gravity * dt
         self.rect.y += self.velocity_y * dt
@@ -94,7 +91,7 @@ class MossGrub:
             self.facing_right *= -1
 
         #Constantly move moss grub
-        self.rect.x += self.speed * self.facing_right
+        self.rect.x += self.speed * self.facing_right * dt
 
     def draw(self, screen, look_y_offset=0):
         """Draw the player character.

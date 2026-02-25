@@ -1,6 +1,7 @@
 import pygame
 import os
 from audio import AudioManager
+from animation import Animation
 
 class Hornet:
     """Player character class with movement and jumping."""
@@ -59,8 +60,13 @@ class Hornet:
         self.max_health = 5
         self.health = 5
         self.heal_amount = 3  # Amount of health restored per heal
-        self.heal_cooldown = 9.0  # Seconds between heals
-        self.heal_timer = 0.0
+        self.heal_channel_duration = 2.0
+        self.heal_channel_timer = 0.0
+        self.is_healing = False
+
+        # Silk resource system
+        self.max_silk = 99
+        self.silk = 0
 
         # Input cooldowns to prevent SFX spam from held keys
         self.attack_cooldown = 0.18
@@ -69,6 +75,8 @@ class Hornet:
         self._attack_timer = 0.0
         self._dash_timer = 0.0
         self._special_timer = 0.0
+        self._attack_triggered = False
+        self._heal_key_down = False
     
     def _load_hornet_animation(self):
         """Load Hornet animations from spritesheet."""
@@ -83,7 +91,21 @@ class Hornet:
             tuple: (velocity_x, velocity_y) for camera movement
         """
         # Horizontal movement (returns velocity for camera)
+        self._attack_triggered = False
         self.velocity_x = 0
+
+        # Heal input (edge-triggered, consume all silk)
+        shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
+        if shift_pressed and not self._heal_key_down:
+            self.start_heal_channel()
+        self._heal_key_down = shift_pressed
+
+        if self.is_healing:
+            self.look_direction = 0
+            self.look_hold_timer = 0.0
+            self._camera_velocity[0] = 0
+            self._camera_velocity[1] = 0
+            return self._camera_velocity
         
         if keys[pygame.K_a]:
             self.velocity_x = -self.speed
@@ -104,6 +126,7 @@ class Hornet:
         # Attack
         if keys[pygame.K_j] and self._attack_timer <= 0.0:
             self._attack_timer = self.attack_cooldown
+            self._attack_triggered = True
             try:
                 self.audio_manager.play_sfx("hornet_attack")
             except Exception:
@@ -125,10 +148,6 @@ class Hornet:
             except Exception:
                 pass  # Skip if sound doesn't exist
         
-        # Healing with left shift
-        if keys[pygame.K_LSHIFT]:
-            self.heal()
-
         # Look up/down
         looking = False
         if keys[pygame.K_w]:
@@ -151,24 +170,67 @@ class Hornet:
         self._camera_velocity[0] = self.velocity_x
         self._camera_velocity[1] = 0
         return self._camera_velocity
+
+    def consume_attack_trigger(self):
+        """Return whether attack was pressed this frame, then clear the flag."""
+        attack_pressed = self._attack_triggered
+        self._attack_triggered = False
+        return attack_pressed
+
+    def gain_silk(self, amount):
+        """Gain silk up to max_silk."""
+        if amount <= 0:
+            return
+        self.silk = min(self.max_silk, self.silk + amount)
+
+    def start_heal_channel(self):
+        """Start 2-second healing channel and consume all silk immediately."""
+        if self.is_healing:
+            return False
+        if self.silk <= 0:
+            return False
+        if self.health >= self.max_health:
+            return False
+
+        self.silk = 0
+        self.is_healing = True
+        self.heal_channel_timer = self.heal_channel_duration
+        return True
+
+    def cancel_heal_channel(self):
+        """Cancel active heal channel."""
+        self.is_healing = False
+        self.heal_channel_timer = 0.0
     
     def heal(self):
-        """Attempt to heal the player if cooldown has elapsed."""
-        if self.heal_timer <= 0.0 and self.health < self.max_health:
-            # Heal the player
+        """Apply healing immediately."""
+        if self.health < self.max_health:
             self.health = min(self.health + self.heal_amount, self.max_health)
-            self.heal_timer = self.heal_cooldown
-            # Play heal sound
             try:
                 self.audio_manager.play_sfx("hornet_heal")
             except Exception:
                 pass  # Skip if sound doesn't exist
+            
+    def draw_silk_bar(self):
+        """
+        Displays amount of silk player has available for healing. 
+        Args: 
+            
+        """
+        silk_bar = os.path.join(os.path.dirname(__file__), "../assets/images/palceholder")
+        
+
     
+
     def take_damage(self, damage):
         """Apply damage to the player.
         Args:
             damage (int): Amount of damage to take
         """
+        if damage <= 0:
+            return
+        if self.is_healing:
+            self.cancel_heal_channel()
         self.health = max(0, self.health - damage)
     
     def update(self, dt):
@@ -176,15 +238,20 @@ class Hornet:
         Args:
             dt (float): Delta time in seconds
         """
-        # Update cooldown timers
-        if self.heal_timer > 0.0:
-            self.heal_timer = max(0.0, self.heal_timer - dt)
         if self._attack_timer > 0.0:
             self._attack_timer = max(0.0, self._attack_timer - dt)
         if self._dash_timer > 0.0:
             self._dash_timer = max(0.0, self._dash_timer - dt)
         if self._special_timer > 0.0:
             self._special_timer = max(0.0, self._special_timer - dt)
+
+        # Complete channel heal after 2 seconds if uninterrupted
+        if self.is_healing:
+            self.heal_channel_timer -= dt
+            if self.heal_channel_timer <= 0.0:
+                self.heal_channel_timer = 0.0
+                self.is_healing = False
+                self.heal()
         
         # Update look hold timer and camera look offset
         if self.look_direction != 0:
@@ -234,6 +301,12 @@ class Hornet:
             screen.blit(self.image_flipped, draw_rect)
         else:
             screen.blit(self.image, draw_rect)
+
+        # Simple heal-channel visual effect
+        if self.is_healing:
+            center = draw_rect.center
+            pulse = int(20 + (self.heal_channel_timer * 30) % 16)
+            pygame.draw.circle(screen, (200, 235, 255), center, pulse, 3)
     
     def reset_position(self, x, y):
         """Reset player to a specific position.

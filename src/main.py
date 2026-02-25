@@ -12,6 +12,8 @@ from transition import TransitionManager, TransitionType
 from settings import SettingsMenu
 from save_file import SaveFile
 from hornet import Hornet
+from mossgrub import MossGrub
+
 
 # Initialize pygame
 pygame.init()
@@ -123,11 +125,24 @@ class Silksong:
         
         # Initialize player (Hornet)
         self.player = None  # Will be created when game starts
+        self.mossgrub = None # Will be created when game starts
         
         # Camera system
         self.camera_x = 0
         self.camera_y = 0
         self.mouse_locked = False
+
+        # Autosave timer for in-game progress
+        self.autosave_interval = 1.0
+        self.autosave_timer = 0.0
+
+        # Combat tuning
+        self.player_contact_damage_cooldown = 0.75
+        self.player_contact_damage_timer = 0.0
+        self.attack_damage = 1
+        self.attack_range = 70
+        self.attack_height_padding = 25
+        self.silk_per_hit = 1
 
     def _update_mouse_lock(self):
         """Lock mouse during gameplay and release it in non-game states."""
@@ -179,11 +194,65 @@ class Silksong:
             keys = pygame.key.get_pressed()
             camera_movement = self.player.handle_input(keys)
             self.player.update(dt)
+
+            if self.player_contact_damage_timer > 0.0:
+                self.player_contact_damage_timer = max(0.0, self.player_contact_damage_timer - dt)
             
             # Update camera position based on player movement
             if camera_movement:
                 self.camera_x += camera_movement[0] * dt
                 self.camera_y += camera_movement[1] * dt
+
+            # Update enemy and resolve combat interactions
+            if self.mossgrub and self.mossgrub.health > 0:
+                self.mossgrub.update(self.player.rect.centerx + 400, self.player.rect.centerx - 400, dt)
+
+                player_world_rect = self.player.rect.copy()
+                player_world_rect.x += int(self.camera_x)
+
+                if self.player.consume_attack_trigger():
+                    if self.player.facing_right:
+                        attack_rect = pygame.Rect(
+                            player_world_rect.right,
+                            player_world_rect.top + self.attack_height_padding,
+                            self.attack_range,
+                            max(10, player_world_rect.height - self.attack_height_padding * 2)
+                        )
+                    else:
+                        attack_rect = pygame.Rect(
+                            player_world_rect.left - self.attack_range,
+                            player_world_rect.top + self.attack_height_padding,
+                            self.attack_range,
+                            max(10, player_world_rect.height - self.attack_height_padding * 2)
+                        )
+
+                    if attack_rect.colliderect(self.mossgrub.rect):
+                        self.mossgrub.take_damage(self.attack_damage)
+                        self.player.gain_silk(self.silk_per_hit)
+
+                if player_world_rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
+                    self.player.take_damage(1)
+                    self.player_contact_damage_timer = self.player_contact_damage_cooldown
+
+            # Periodically persist player state in current save slot
+            self.autosave_timer += dt
+            if self.autosave_timer >= self.autosave_interval:
+                self.save_current_game_state()
+                self.autosave_timer = 0.0
+
+    def save_current_game_state(self):
+        """Save core player progress to the currently selected save slot."""
+        if not self.player or self.current_slot not in self.save_file.save_slots:
+            return
+
+        base_state = dict(self.game_state) if isinstance(self.game_state, dict) else {}
+        base_state.update({
+            "player_position": [self.player.rect.x, self.player.rect.y],
+            "player_health": self.player.health,
+            "player_silk": self.player.silk,
+        })
+        self.save_file.save_game_file(base_state, self.current_slot)
+        self.game_state = base_state
     
     def change_state(self, new_state):
         """Change game state with black fade transition."""
@@ -259,6 +328,29 @@ class Silksong:
         # Draw player (offset by look_y so player moves with the world)
         if self.player:
             self.player.draw(self.screen, look_y_offset=-look_y)
+
+        # Draw enemy with camera offset
+        if self.mossgrub and self.mossgrub.health > 0:
+            enemy_draw_rect = self.mossgrub.rect.copy()
+            enemy_draw_rect.x -= int(self.camera_x)
+            enemy_draw_rect.y -= int(self.camera_y + look_y)
+
+            if self.mossgrub.facing_right == 1:
+                self.screen.blit(self.mossgrub.image, enemy_draw_rect)
+            else:
+                self.screen.blit(self.mossgrub.image_flipped, enemy_draw_rect)
+
+        # HUD: health, silk, and healing state
+        if self.player:
+            hud_font = config.get_font(int(28 * config.scale_y))
+            hp_text = hud_font.render(f"HP: {self.player.health}/{self.player.max_health}", True, config.white)
+            silk_text = hud_font.render(f"Silk: {self.player.silk}", True, config.white)
+            self.screen.blit(hp_text, (25, 20))
+            self.screen.blit(silk_text, (25, 55))
+
+            if self.player.is_healing:
+                heal_text = hud_font.render(f"Healing... {self.player.heal_channel_timer:.1f}s", True, config.white)
+                self.screen.blit(heal_text, (25, 90))
     
     def draw(self):
         """Render the game."""
@@ -366,14 +458,39 @@ class Silksong:
                     elif action and action.startswith("start_"):
                         # Save slot was selected, start game
                         slot_num = int(action.split("_")[1])
+                        self.current_slot = slot_num
+                        loaded_state = self.save_file.load_game_file(slot_num) or {}
+                        self.game_state = loaded_state
+
                         # Create player when starting game
                         start_x = config.screen_width // 2
                         self.player = Hornet(start_x, 0, config.screen_width, config.screen_height)
+                        self.mossgrub = MossGrub(start_x, 0, config.screen_width, config.screen_height)
                         self.player.reset_position(start_x, self.player.ground_level)
                         self.player.on_ground = True
+                        self.mossgrub.reset_position(start_x + 240, self.mossgrub.ground_level)
+                        self.mossgrub.on_ground = True
+
+                        # Restore player stats from selected save slot
+                        saved_health = loaded_state.get("player_health", self.player.health)
+                        saved_silk = loaded_state.get("player_silk", self.player.silk)
+                        self.player.health = max(0, min(self.player.max_health, int(saved_health)))
+                        self.player.silk = max(0, min(self.player.max_silk, int(saved_silk)))
+
+                        saved_position = loaded_state.get("player_position")
+                        if isinstance(saved_position, list) and len(saved_position) >= 2:
+                            self.player.rect.x = int(saved_position[0])
+                            self.player.rect.y = int(saved_position[1])
+
                         # Reset camera
                         self.camera_x = 0
                         self.camera_y = 0
+                        self.player_contact_damage_timer = 0.0
+                        self.autosave_timer = 0.0
+
+                        # Persist state immediately so schema stays up-to-date
+                        self.save_current_game_state()
+
                         # Start game
                         self.change_state("game")
                     # Delete actions are handled within save_file.handle_event
@@ -385,6 +502,9 @@ class Silksong:
             self.handle_events()
             self.update(dt)
             self.draw()
+
+        # Save one last time before exiting
+        self.save_current_game_state()
         
         pygame.quit()
  

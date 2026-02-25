@@ -32,11 +32,11 @@ class SaveSlotButton:
         self.background_img = background_img
         self.rect = pygame.Rect(x, y, width, height)
 
-        # Load cursor pointer for hover effect (different from button.py pointer)
-        cursor_path = os.path.join(os.path.dirname(__file__), "../assets/images/Cursor.png")
-        if os.path.exists(cursor_path):
-            self.hover_pointer = pygame.image.load(cursor_path).convert_alpha()
-            # Scale cursor to appropriate size
+        # Load menu slider for hover effect (different from button.py pointer)
+        slider_path = os.path.join(os.path.dirname(__file__), "../assets/images/MenuSliderHandle.png")
+        if os.path.exists(slider_path):
+            self.hover_pointer = pygame.image.load(slider_path).convert_alpha()
+            # Scale slider to appropriate size
             pointer_size = int(40 * config.scale_x)
             self.hover_pointer = pygame.transform.scale(self.hover_pointer, (pointer_size, pointer_size))
         else:
@@ -357,7 +357,9 @@ class SaveFile:
             "level": 1,
             "score": 0,
             "player_position": [0, 0],
-            "inventory": []
+            "inventory": [],
+            "player_health": 5,
+            "player_silk": 0
         }
         try:
             with open(filename, 'w') as f:
@@ -493,7 +495,9 @@ class SaveFile:
                         "level": 1,
                         "score": 0,
                         "player_position": [0, 0],
-                        "inventory": []
+                        "inventory": [],
+                        "player_health": 5,
+                        "player_silk": 0
                     }
                     # Update the button status
                     self.save_slot_buttons[slot_num].update_save_status(True, self.played_file)
@@ -538,12 +542,19 @@ class SaveFile:
             button = self.save_slot_buttons[slot_num]
             button.draw(screen)
             
-
-            
             # Draw save info text if save exists
             game_state = self.slot_status_cache.get(slot_num)
             if game_state:
-                pass
+                saved_health = game_state.get("player_health", 5)
+                saved_silk = game_state.get("player_silk", 0)
+
+                info_text = self.status_font.render(
+                    f"HP: {int(saved_health)}  Silk: {int(saved_silk)}",
+                    True,
+                    config.white
+                )
+                info_rect = info_text.get_rect(midbottom=(button.rect.centerx, button.rect.bottom - int(20 * config.scale_y)))
+                screen.blit(info_text, info_rect)
             # Draw trash button
             self.trash_buttons[slot_num].draw(screen)
         # Load borders for all save files
