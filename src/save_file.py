@@ -37,7 +37,7 @@ class SaveSlotButton:
         if os.path.exists(slider_path):
             self.hover_pointer = pygame.image.load(slider_path).convert_alpha()
             # Scale slider to appropriate size
-            pointer_size = int(40 * config.scale_x)
+            pointer_size = int(70 * config.scale_x)
             self.hover_pointer = pygame.transform.scale(self.hover_pointer, (pointer_size, pointer_size))
         else:
             self.hover_pointer = None
@@ -83,18 +83,22 @@ class SaveSlotButton:
             # Draw cursor pointers on both sides
             if self.hover_pointer:
                 # Left pointer
+                left_pointer = self.hover_pointer
                 left_pointer_rect = self.hover_pointer.get_rect(
-                    right=self.rect.left - 20, 
+                    right=self.rect.left + 30, 
                     centery=self.rect.centery
                 )
-                screen.blit(self.hover_pointer, left_pointer_rect)
+                screen.blit(left_pointer, left_pointer_rect)
                 
                 # Right pointer
+                right_pointer = pygame.transform.flip(self.hover_pointer, True, False)
                 right_pointer_rect = self.hover_pointer.get_rect(
-                    left=self.rect.right + 20, 
+                    left=self.rect.right - 30, 
                     centery=self.rect.centery
                 )
-                screen.blit(self.hover_pointer, right_pointer_rect)
+                screen.blit(right_pointer, right_pointer_rect)
+                # Draw right pointer
+                
     
     def is_clicked(self, pos):
         """Check if button is clicked."""
