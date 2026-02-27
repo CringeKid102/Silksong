@@ -218,12 +218,10 @@ class Hornet:
             
         """
         silk_bar = os.path.join(os.path.dirname(__file__), "../assets/images/palceholder")
-        
-
-    
 
     def take_damage(self, damage):
-        """Apply damage to the player.
+        """
+        Apply damage to the player.
         Args:
             damage (int): Amount of damage to take
         """
@@ -268,9 +266,6 @@ class Hornet:
             else:
                 self.camera_look_y = 0.0
         
-        # Don't move horizontally - camera handles that
-        # Only apply vertical movement (jumping/gravity)
-        
         # Apply gravity
         self.velocity_y += self.gravity * dt
         self.rect.y += self.velocity_y * dt
@@ -302,11 +297,12 @@ class Hornet:
         else:
             screen.blit(self.image, draw_rect)
 
+        # Draw UI
+        healthbar = os.path.join(os.path.dirname(__file__), "../assets/images/healthbar.webp")
+
         # Simple heal-channel visual effect
         if self.is_healing:
             center = draw_rect.center
-            pulse = int(20 + (self.heal_channel_timer * 30) % 16)
-            pygame.draw.circle(screen, (200, 235, 255), center, pulse, 3)
     
     def reset_position(self, x, y):
         """Reset player to a specific position.

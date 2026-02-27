@@ -16,13 +16,14 @@ class MossGrub:
         # Load and scale player image
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
+        pygame.transform.flip(self.image, True, False)
         source_width, source_height = self.image.get_size()
         scale_factor = 0.25
         scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
         self.image = pygame.transform.scale(self.image, scaled_size)
         self.image_flipped = pygame.transform.flip(self.image, True, False)
-        self.rect.x = x
         self.rect = self.image.get_rect()
+        self.rect.x = x
         self.rect.midbottom = (x, y)
         
         # Movement attributes
@@ -52,24 +53,24 @@ class MossGrub:
         self.health = 2
     
     def _load_mossgrub_animation(self):
-        """Load Hornet animations from spritesheet."""
+        """Load mossgrub animations from spritesheet."""
         # Placeholder for future animation loading
         pass
     
     
     def take_damage(self, damage):
-        """Apply damage to the player.
+        """Apply damage to mossgrub.
         Args:
             damage (int): Amount of damage to take
         """
         self.health = max(0, self.health - damage)
     
-    def update(self, max_x, min_x, dt):
+    def update(self, min_x, max_x, dt):
         """Update mossgrub position and physics.
         Args:
             dt (float): Delta time in seconds
-            max_x (int): right boundary
             min_x (int): left boundary
+            max_x (int): right boundary
         """
         # Apply gravity
         self.velocity_y += self.gravity * dt
@@ -86,12 +87,14 @@ class MossGrub:
             self.rect.top = 0
             self.velocity_y = 0
 
-        # Check for boundaries and reverse direction
-        if self.rect.x >= max_x or self.rect.x <= min_x:
-            self.facing_right *= -1
-
-        #Constantly move moss grub
+        # move first, so we only flip after we actually went out of bounds. 
         self.rect.x += self.speed * self.facing_right * dt
+
+        # Check for boundaries and reverse direction.
+        if self.rect.centerx >= max_x:
+            self.facing_right = -1
+        elif self.rect.centerx <= min_x:
+            self.facing_right = 1
 
     def draw(self, screen, look_y_offset=0):
         """Draw the player character.

@@ -2,8 +2,17 @@
     "level": 1,
     "score": 0,
     "player_position": [
-        0,
-        0
+        766,
+        419
     ],
-    "inventory": []
+    "inventory": [],
+    "player_health": 0,
+    "player_silk": 0,
+    "player_facing_right": false,
+    "mossgrub_position": [
+        584,
+        419
+    ],
+    "mossgrub_health": 2,
+    "player_position_space": "world"
 }

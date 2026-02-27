@@ -85,7 +85,7 @@ class SaveSlotButton:
                 # Left pointer
                 left_pointer = self.hover_pointer
                 left_pointer_rect = self.hover_pointer.get_rect(
-                    right=self.rect.left + 30, 
+                    right=self.rect.left + 20, 
                     centery=self.rect.centery
                 )
                 screen.blit(left_pointer, left_pointer_rect)
@@ -93,7 +93,7 @@ class SaveSlotButton:
                 # Right pointer
                 right_pointer = pygame.transform.flip(self.hover_pointer, True, False)
                 right_pointer_rect = self.hover_pointer.get_rect(
-                    left=self.rect.right - 30, 
+                    left=self.rect.right - 20, 
                     centery=self.rect.centery
                 )
                 screen.blit(right_pointer, right_pointer_rect)
@@ -360,10 +360,13 @@ class SaveFile:
         default_game_state = {
             "level": 1,
             "score": 0,
-            "player_position": [0, 0],
+            "player_position": None,
             "inventory": [],
             "player_health": 5,
-            "player_silk": 0
+            "player_silk": 0,
+            "player_facing_right": True,
+            "mossgrub_position": None,
+            "mossgrub_health": 2
         }
         try:
             with open(filename, 'w') as f:
@@ -498,10 +501,13 @@ class SaveFile:
                     self.game_state = {
                         "level": 1,
                         "score": 0,
-                        "player_position": [0, 0],
+                        "player_position": None,
                         "inventory": [],
                         "player_health": 5,
-                        "player_silk": 0
+                        "player_silk": 0,
+                        "player_facing_right": True,
+                        "mossgrub_position": None,
+                        "mossgrub_health": 2
                     }
                     # Update the button status
                     self.save_slot_buttons[slot_num].update_save_status(True, self.played_file)

@@ -132,9 +132,8 @@ class Silksong:
         self.camera_y = 0
         self.mouse_locked = False
 
-        # Autosave timer for in-game progress
-        self.autosave_interval = 1.0
-        self.autosave_timer = 0.0
+        # Cache last saved state so we can save only when something changes
+        self._last_saved_signature = None
 
         # Combat tuning
         self.player_contact_damage_cooldown = 0.75
@@ -204,8 +203,13 @@ class Silksong:
                 self.camera_y += camera_movement[1] * dt
 
             # Update enemy and resolve combat interactions
+            
+            total_d = 300
+            grubleftground = self.player.rect.centerx - total_d/2
+            grubrightbound = self.player.rect.centerx+total_d/2
+
             if self.mossgrub and self.mossgrub.health > 0:
-                self.mossgrub.update(self.player.rect.centerx + 400, self.player.rect.centerx - 400, dt)
+                self.mossgrub.update(grubleftground, grubrightbound, dt)
 
                 player_world_rect = self.player.rect.copy()
                 player_world_rect.x += int(self.camera_x)
@@ -234,25 +238,51 @@ class Silksong:
                     self.player.take_damage(1)
                     self.player_contact_damage_timer = self.player_contact_damage_cooldown
 
-            # Periodically persist player state in current save slot
-            self.autosave_timer += dt
-            if self.autosave_timer >= self.autosave_interval:
-                self.save_current_game_state()
-                self.autosave_timer = 0.0
+            # Persist whenever tracked game state changes (including mid-air positions)
+            self.save_current_game_state()
 
-    def save_current_game_state(self):
+    def save_current_game_state(self, force=False):
         """Save core player progress to the currently selected save slot."""
         if not self.player or self.current_slot not in self.save_file.save_slots:
             return
 
+        # Player horizontal travel is represented by camera_x, not rect.x.
+        # Save world-space position so ground movement persists.
+        player_world_x = int(self.player.rect.x + self.camera_x)
+        player_world_y = int(self.player.rect.y + self.camera_y)
+
+        mossgrub_position = None
+        mossgrub_health = None
+        if self.mossgrub:
+            mossgrub_position = [self.mossgrub.rect.x, self.mossgrub.rect.y]
+            mossgrub_health = self.mossgrub.health
+
+        state_signature = (
+            player_world_x,
+            player_world_y,
+            self.player.health,
+            self.player.silk,
+            self.player.facing_right,
+            tuple(mossgrub_position) if mossgrub_position else None,
+            mossgrub_health,
+        )
+
+        if not force and state_signature == self._last_saved_signature:
+            return
+
         base_state = dict(self.game_state) if isinstance(self.game_state, dict) else {}
         base_state.update({
-            "player_position": [self.player.rect.x, self.player.rect.y],
+            "player_position": [player_world_x, player_world_y],
+            "player_position_space": "world",
             "player_health": self.player.health,
             "player_silk": self.player.silk,
+            "player_facing_right": self.player.facing_right,
+            "mossgrub_position": mossgrub_position,
+            "mossgrub_health": mossgrub_health,
         })
         self.save_file.save_game_file(base_state, self.current_slot)
         self.game_state = base_state
+        self._last_saved_signature = state_signature
     
     def change_state(self, new_state):
         """Change game state with black fade transition."""
@@ -336,9 +366,9 @@ class Silksong:
             enemy_draw_rect.y -= int(self.camera_y + look_y)
 
             if self.mossgrub.facing_right == 1:
-                self.screen.blit(self.mossgrub.image, enemy_draw_rect)
-            else:
                 self.screen.blit(self.mossgrub.image_flipped, enemy_draw_rect)
+            else:
+                self.screen.blit(self.mossgrub.image, enemy_draw_rect)
 
         # HUD: health, silk, and healing state
         if self.player:
@@ -461,6 +491,7 @@ class Silksong:
                         self.current_slot = slot_num
                         loaded_state = self.save_file.load_game_file(slot_num) or {}
                         self.game_state = loaded_state
+                        self._last_saved_signature = None
 
                         # Create player when starting game
                         start_x = config.screen_width // 2
@@ -470,26 +501,44 @@ class Silksong:
                         self.player.on_ground = True
                         self.mossgrub.reset_position(start_x + 240, self.mossgrub.ground_level)
                         self.mossgrub.on_ground = True
+                        self.camera_x = 0
+                        self.camera_y = 0
 
                         # Restore player stats from selected save slot
                         saved_health = loaded_state.get("player_health", self.player.health)
                         saved_silk = loaded_state.get("player_silk", self.player.silk)
+                        saved_facing_right = loaded_state.get("player_facing_right", self.player.facing_right)
                         self.player.health = max(0, min(self.player.max_health, int(saved_health)))
                         self.player.silk = max(0, min(self.player.max_silk, int(saved_silk)))
+                        self.player.facing_right = bool(saved_facing_right)
 
                         saved_position = loaded_state.get("player_position")
+                        saved_position_space = loaded_state.get("player_position_space", "screen")
                         if isinstance(saved_position, list) and len(saved_position) >= 2:
-                            self.player.rect.x = int(saved_position[0])
-                            self.player.rect.y = int(saved_position[1])
+                            saved_x = int(saved_position[0])
+                            saved_y = int(saved_position[1])
+                            # Ignore legacy/default placeholder coordinates from new save files
+                            if not (saved_x == 0 and saved_y == 0):
+                                if saved_position_space == "world":
+                                    # Keep player centered on screen and restore world location via camera offset
+                                    self.camera_x = saved_x - self.player.rect.x
+                                    self.camera_y = saved_y - self.player.rect.y
+                                else:
+                                    # Backward compatibility for older saves that stored rect coordinates
+                                    self.player.rect.x = saved_x
+                                    self.player.rect.y = saved_y
 
-                        # Reset camera
-                        self.camera_x = 0
-                        self.camera_y = 0
+                        saved_mossgrub_position = loaded_state.get("mossgrub_position")
+                        if isinstance(saved_mossgrub_position, list) and len(saved_mossgrub_position) >= 2:
+                            self.mossgrub.rect.x = int(saved_mossgrub_position[0])
+                            self.mossgrub.rect.y = int(saved_mossgrub_position[1])
+
+                        saved_mossgrub_health = loaded_state.get("mossgrub_health", self.mossgrub.health)
+                        self.mossgrub.health = max(0, min(self.mossgrub.max_health, int(saved_mossgrub_health)))
+
                         self.player_contact_damage_timer = 0.0
-                        self.autosave_timer = 0.0
-
                         # Persist state immediately so schema stays up-to-date
-                        self.save_current_game_state()
+                        self.save_current_game_state(force=True)
 
                         # Start game
                         self.change_state("game")
@@ -504,7 +553,7 @@ class Silksong:
             self.draw()
 
         # Save one last time before exiting
-        self.save_current_game_state()
+        self.save_current_game_state(force=True)
         
         pygame.quit()
  
