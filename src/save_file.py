@@ -365,6 +365,7 @@ class SaveFile:
             "player_health": 5,
             "player_silk": 0,
             "player_facing_right": True,
+            "player_respawn_position": None,
             "mossgrub_position": None,
             "mossgrub_health": 2
         }
@@ -392,7 +393,6 @@ class SaveFile:
         try:
             with open(filename, 'w') as f:
                 json.dump(game_state, f, indent=4)
-            print(f"Game state saved to {filename}")
             # Update cache
             self.slot_status_cache[slot] = game_state
         except IOError as e:
@@ -506,6 +506,7 @@ class SaveFile:
                         "player_health": 5,
                         "player_silk": 0,
                         "player_facing_right": True,
+                        "player_respawn_position": None,
                         "mossgrub_position": None,
                         "mossgrub_health": 2
                     }

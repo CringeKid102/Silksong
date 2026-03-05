@@ -2,6 +2,7 @@ import pygame
 import os
 from audio import AudioManager
 from animation import Animation
+from bench import Bench
 
 class Hornet:
     """Player character class with movement and jumping."""
@@ -33,6 +34,9 @@ class Hornet:
         self.jump_power = -600  # Jump velocity (negative is up)
         self.gravity = 1800  # Gravity acceleration (pixels per second squared)
         self.on_ground = False
+        self.knockback_velocity_x = 0.0
+        self.knockback_strength = 520.0
+        self.knockback_decay = 1600.0
         
         # Screen boundaries
         self.screen_width = screen_width
@@ -44,6 +48,14 @@ class Hornet:
         
         # Audio manager instance
         self.audio_manager = AudioManager()
+
+        # Initialize bench
+        self.bench = Bench(screen_width // 2, self.ground_level)
+
+        # Bench rest state
+        self.is_resting = False
+        self.rest_timer = 0.0
+        self.rest_duration = 0.45
         
         # Camera velocity cache to avoid tuple creation each frame
         self._camera_velocity = [0, 0]
@@ -65,7 +77,7 @@ class Hornet:
         self.is_healing = False
 
         # Silk resource system
-        self.max_silk = 99
+        self.max_silk = 9
         self.silk = 0
 
         # Input cooldowns to prevent SFX spam from held keys
@@ -77,6 +89,10 @@ class Hornet:
         self._special_timer = 0.0
         self._attack_triggered = False
         self._heal_key_down = False
+
+        #Respawn point
+        self.respawn_x = x
+        self.respawn_y = y
     
     def _load_hornet_animation(self):
         """Load Hornet animations from spritesheet."""
@@ -100,10 +116,10 @@ class Hornet:
             self.start_heal_channel()
         self._heal_key_down = shift_pressed
 
-        if self.is_healing:
+        if self.is_healing or self.is_resting:
             self.look_direction = 0
             self.look_hold_timer = 0.0
-            self._camera_velocity[0] = 0
+            self._camera_velocity[0] = self.knockback_velocity_x
             self._camera_velocity[1] = 0
             return self._camera_velocity
         
@@ -167,7 +183,7 @@ class Hornet:
             self.look_hold_timer = 0.0
         
         # Return camera movement (reuse cached list)
-        self._camera_velocity[0] = self.velocity_x
+        self._camera_velocity[0] = self.velocity_x + self.knockback_velocity_x
         self._camera_velocity[1] = 0
         return self._camera_velocity
 
@@ -201,10 +217,19 @@ class Hornet:
         """Cancel active heal channel."""
         self.is_healing = False
         self.heal_channel_timer = 0.0
+
+    def start_rest(self):
+        """Start a short bench rest and fully heal."""
+        self.cancel_heal_channel()
+        self.is_resting = True
+        self.rest_timer = self.rest_duration
+        self.health = self.max_health
+        self.velocity_x = 0
+        self.velocity_y = 0
     
     def heal(self):
         """Apply healing immediately."""
-        if self.health < self.max_health:
+        if self.health < self.max_health and self.silk == self.max_silk:
             self.health = min(self.health + self.heal_amount, self.max_health)
             try:
                 self.audio_manager.play_sfx("hornet_heal")
@@ -219,29 +244,48 @@ class Hornet:
         """
         silk_bar = os.path.join(os.path.dirname(__file__), "../assets/images/palceholder")
 
-    def take_damage(self, damage):
+    def take_damage(self, damage, knockback_direction=0):
         """
         Apply damage to the player.
         Args:
             damage (int): Amount of damage to take
+            knockback_direction (int): Horizontal knockback direction (-1 or 1)
         """
         if damage <= 0:
             return
         if self.is_healing:
             self.cancel_heal_channel()
+        if self.is_resting:
+            self.is_resting = False
+            self.rest_timer = 0.0
         self.health = max(0, self.health - damage)
+
+        if knockback_direction < 0:
+            self.knockback_velocity_x = -self.knockback_strength
+        elif knockback_direction > 0:
+            self.knockback_velocity_x = self.knockback_strength
     
-    def update(self, dt):
+    def update(self, dt, collision_rects=None, camera_x=0, camera_y=0):
         """Update player position and physics.
         Args:
             dt (float): Delta time in seconds
         """
+        if self.knockback_velocity_x > 0.0:
+            self.knockback_velocity_x = max(0.0, self.knockback_velocity_x - self.knockback_decay * dt)
+        elif self.knockback_velocity_x < 0.0:
+            self.knockback_velocity_x = min(0.0, self.knockback_velocity_x + self.knockback_decay * dt)
+
         if self._attack_timer > 0.0:
             self._attack_timer = max(0.0, self._attack_timer - dt)
         if self._dash_timer > 0.0:
             self._dash_timer = max(0.0, self._dash_timer - dt)
         if self._special_timer > 0.0:
             self._special_timer = max(0.0, self._special_timer - dt)
+
+        if self.is_resting:
+            self.rest_timer = max(0.0, self.rest_timer - dt)
+            if self.rest_timer <= 0.0:
+                self.is_resting = False
 
         # Complete channel heal after 2 seconds if uninterrupted
         if self.is_healing:
@@ -269,17 +313,49 @@ class Hornet:
         # Apply gravity
         self.velocity_y += self.gravity * dt
         self.rect.y += self.velocity_y * dt
-        
-        # Ground collision
-        if self.rect.bottom >= self.ground_level:
-            self.rect.bottom = self.ground_level
-            self.velocity_y = 0
-            self.on_ground = True
+
+        landed = False
+        if collision_rects:
+            world_rect = self.rect.copy()
+            world_rect.x += int(camera_x)
+            world_rect.y += int(camera_y)
+            previous_bottom = world_rect.bottom - (self.velocity_y * dt)
+
+            landing_top = None
+            if self.velocity_y >= 0:
+                for ground_rect in collision_rects:
+                    if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
+                        continue
+                    if previous_bottom <= ground_rect.top and world_rect.bottom >= ground_rect.top:
+                        if landing_top is None or ground_rect.top < landing_top:
+                            landing_top = ground_rect.top
+
+            if landing_top is not None:
+                world_rect.bottom = int(landing_top)
+                self.rect.y = int(world_rect.y - camera_y)
+                self.velocity_y = 0
+                self.on_ground = True
+                landed = True
+
+        if not landed:
+            if collision_rects:
+                self.on_ground = False
+            elif self.rect.bottom >= self.ground_level:
+                self.rect.bottom = self.ground_level
+                self.velocity_y = 0
+                self.on_ground = True
         
         # Prevent falling off screen top
         if self.rect.top < 0:
             self.rect.top = 0
             self.velocity_y = 0
+
+        if self.health <= 0:
+            self.health = 0
+            try:
+                self.audio_manager.play_sfx("hornet_death")
+            except Exception:
+                pass  # Skip if sound doesn't exist
     
     def draw(self, screen, look_y_offset=0):
         """Draw the player character.
@@ -302,7 +378,7 @@ class Hornet:
 
         # Simple heal-channel visual effect
         if self.is_healing:
-            center = draw_rect.center
+            center = draw_rect.center      
     
     def reset_position(self, x, y):
         """Reset player to a specific position.
@@ -314,3 +390,5 @@ class Hornet:
         self.velocity_x = 0
         self.velocity_y = 0
         self.on_ground = False
+        self.is_resting = False
+        self.rest_timer = 0.0
