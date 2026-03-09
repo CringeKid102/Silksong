@@ -24,7 +24,12 @@ class MossGrub:
         self.image_flipped = pygame.transform.flip(self.image, True, False)
         self.rect = self.image.get_rect()
         self.rect.x = x
+        self.rect.y = y
         self.rect.midbottom = (x, y)
+
+        self.knockback_velocity_x = 0.0
+        self.knockback_strength = 520.0
+        self.knockback_decay = 1600.0
         
         # Movement attributes
         self.velocity_x = 0
@@ -47,25 +52,32 @@ class MossGrub:
         # Camera velocity cache to avoid tuple creation each frame
         self._camera_velocity = [0, 0]
         
-        
         # Health system
-        self.max_health = 2
-        self.health = 2
+        self.max_health = 1000
+        self.health = 1000
     
     def _load_mossgrub_animation(self):
         """Load mossgrub animations from spritesheet."""
         # Placeholder for future animation loading
         pass
-    
-    
-    def take_damage(self, damage):
-        """Apply damage to mossgrub.
+
+    def take_damage(self, damage, knockback_direction=0):
+        """
+        Apply damage to the mossgrub.
         Args:
             damage (int): Amount of damage to take
-        """
-        self.health = max(0, self.health - damage)
-    
-    def update(self, min_x, max_x, dt):
+            knockback_direction (int): Horizontal knockback direction (-1 or 1)
+        """   
+        if damage <= 0:
+            return
+        else:
+            self.health = max(0, self.health - damage)
+            if knockback_direction < 0:
+                self.knockback_velocity_x = -self.knockback_strength
+            elif knockback_direction > 0:
+                self.knockback_velocity_x = self.knockback_strength
+       
+    def update(self, min_x, max_x, dt, collision_rects = None):
         """Update mossgrub position and physics.
         Args:
             dt (float): Delta time in seconds
@@ -81,20 +93,27 @@ class MossGrub:
             self.rect.bottom = self.ground_level
             self.velocity_y = 0
             self.on_ground = True
-        
+        else:
+            self.on_ground = False
+
         # Prevent falling off screen top
         if self.rect.top < 0:
             self.rect.top = 0
             self.velocity_y = 0
 
-        # move first, so we only flip after we actually went out of bounds. 
-        self.rect.x += self.speed * self.facing_right * dt
+        # Combine patrol motion with temporary knockback push.
+        self.rect.x += (self.speed * self.facing_right + self.knockback_velocity_x) * dt
 
         # Check for boundaries and reverse direction.
         if self.rect.centerx >= max_x:
             self.facing_right = -1
         elif self.rect.centerx <= min_x:
             self.facing_right = 1
+        
+        if self.knockback_velocity_x > 0.0:
+            self.knockback_velocity_x = max(0.0, self.knockback_velocity_x - self.knockback_decay * dt)
+        elif self.knockback_velocity_x < 0.0:
+            self.knockback_velocity_x = min(0.0, self.knockback_velocity_x + self.knockback_decay * dt)
 
     def draw(self, screen, look_y_offset=0):
         """Draw the player character.

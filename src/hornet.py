@@ -72,7 +72,7 @@ class Hornet:
         self.max_health = 5
         self.health = 5
         self.heal_amount = 3  # Amount of health restored per heal
-        self.heal_channel_duration = 2.0
+        self.heal_channel_duration = 1.0
         self.heal_channel_timer = 0.0
         self.is_healing = False
 
@@ -89,6 +89,15 @@ class Hornet:
         self._special_timer = 0.0
         self._attack_triggered = False
         self._heal_key_down = False
+
+        # Dedicated attack hitbox state (world-space rect, short visual lifetime)
+        self.attack_range = 70
+        self.attack_height_padding = 25
+        self.attack_hitbox_duration = 0.12
+        self.attack_hitbox_timer = 0.0
+        self.attack_hitbox = None
+        self.attack_hitbox_facing_right = True
+        self.attack_hitbox_direction = "forward"
 
         #Respawn point
         self.respawn_x = x
@@ -143,6 +152,12 @@ class Hornet:
         if keys[pygame.K_j] and self._attack_timer <= 0.0:
             self._attack_timer = self.attack_cooldown
             self._attack_triggered = True
+            if keys[pygame.K_w]:
+                self.attack_hitbox_direction = "up"
+            elif keys[pygame.K_s]:
+                self.attack_hitbox_direction = "down"
+            else:
+                self.attack_hitbox_direction = "forward"
             try:
                 self.audio_manager.play_sfx("hornet_attack")
             except Exception:
@@ -193,6 +208,45 @@ class Hornet:
         self._attack_triggered = False
         return attack_pressed
 
+    def _build_attack_hitbox(self, world_rect):
+        """Build attack hitbox from the current world-space Hornet rect."""
+        base_height = max(10, world_rect.height - self.attack_height_padding * 2)
+
+        if self.attack_hitbox_direction == "up":
+            hitbox_width = max(26, int(world_rect.width * 0.9))
+            hitbox_height = int(self.attack_range)
+            facing_bias = 12 if self.attack_hitbox_facing_right else -12
+            hitbox_left = world_rect.centerx - hitbox_width // 2 + facing_bias
+            hitbox_top = world_rect.top - hitbox_height
+            return pygame.Rect(int(hitbox_left), int(hitbox_top), int(hitbox_width), int(hitbox_height))
+
+        if self.attack_hitbox_direction == "down":
+            hitbox_width = int(self.attack_range)
+            hitbox_height = max(base_height, int(self.attack_range * 0.7))
+            hitbox_top = world_rect.bottom - int(hitbox_height * 0.35)
+            if self.attack_hitbox_facing_right:
+                hitbox_left = world_rect.right
+            else:
+                hitbox_left = world_rect.left - hitbox_width
+            return pygame.Rect(int(hitbox_left), int(hitbox_top), int(hitbox_width), int(hitbox_height))
+
+        hitbox_top = world_rect.top + self.attack_height_padding
+        if self.attack_hitbox_facing_right:
+            hitbox_left = world_rect.right
+        else:
+            hitbox_left = world_rect.left - self.attack_range
+        return pygame.Rect(int(hitbox_left), int(hitbox_top), int(self.attack_range), int(base_height))
+
+    def start_attack_hitbox(self, camera_x=0, camera_y=0):
+        """Create and activate Hornet's attack hitbox in world coordinates."""
+        world_rect = self.rect.copy()
+        world_rect.x += int(camera_x)
+        world_rect.y += int(camera_y)
+        self.attack_hitbox_facing_right = self.facing_right
+        self.attack_hitbox = self._build_attack_hitbox(world_rect)
+        self.attack_hitbox_timer = self.attack_hitbox_duration
+        return self.attack_hitbox.copy()
+
     def gain_silk(self, amount):
         """Gain silk up to max_silk."""
         if amount <= 0:
@@ -229,7 +283,8 @@ class Hornet:
     
     def heal(self):
         """Apply healing immediately."""
-        if self.health < self.max_health and self.silk == self.max_silk:
+        # Silk is consumed when channel starts, so completion should only check HP.
+        if self.health < self.max_health:
             self.health = min(self.health + self.heal_amount, self.max_health)
             try:
                 self.audio_manager.play_sfx("hornet_heal")
@@ -287,7 +342,7 @@ class Hornet:
             if self.rest_timer <= 0.0:
                 self.is_resting = False
 
-        # Complete channel heal after 2 seconds if uninterrupted
+        # Complete channel heal after 1 seconds if uninterrupted
         if self.is_healing:
             self.heal_channel_timer -= dt
             if self.heal_channel_timer <= 0.0:
@@ -345,6 +400,17 @@ class Hornet:
                 self.velocity_y = 0
                 self.on_ground = True
         
+        if self.attack_hitbox_timer > 0.0:
+            # Keep active attack hitbox attached to Hornet in world-space.
+            world_rect = self.rect.copy()
+            world_rect.x += int(camera_x)
+            world_rect.y += int(camera_y)
+            self.attack_hitbox = self._build_attack_hitbox(world_rect)
+
+            self.attack_hitbox_timer = max(0.0, self.attack_hitbox_timer - dt)
+            if self.attack_hitbox_timer <= 0.0:
+                self.attack_hitbox = None
+        
         # Prevent falling off screen top
         if self.rect.top < 0:
             self.rect.top = 0
@@ -392,3 +458,7 @@ class Hornet:
         self.on_ground = False
         self.is_resting = False
         self.rest_timer = 0.0
+        self.attack_hitbox = None
+        self.attack_hitbox_timer = 0.0
+        self.attack_hitbox_facing_right = self.facing_right
+        self.attack_hitbox_direction = "forward"

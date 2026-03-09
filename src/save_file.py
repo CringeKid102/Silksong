@@ -422,8 +422,14 @@ class SaveFile:
             # Update cache
             self.slot_status_cache[slot] = game_state
             return game_state
+        except json.JSONDecodeError as e:
+            # Corrupt or empty file: mark slot as invalid so caller can recreate it.
+            print(f"Save file is invalid JSON ({filename}): {e}")
+            self.slot_status_cache[slot] = None
+            return None
         except IOError as e:
             print(f"An error occurred while loading the game state: {e}")
+            self.slot_status_cache[slot] = None
             return None
     
     def delete_game_file(self, slot=1):
@@ -493,7 +499,7 @@ class SaveFile:
                 
                 # Try to load existing save
                 loaded_state = self.load_game_file(slot_num)
-                if loaded_state:
+                if loaded_state is not None:
                     self.game_state = loaded_state
                 else:
                     # Create new save file for this slot

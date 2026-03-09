@@ -122,6 +122,14 @@ class Silksong:
         
         # Create buttons
         self.create_buttons() # Normal buttons
+        self.game_back_button = Button(
+            int(config.screen_width - 90 * config.scale_x),
+            int(45 * config.scale_y),
+            "Back",
+            config.white,
+            config.title_font_path,
+            int(30 * config.scale_y),
+        )
         
         # Initialize player (Hornet)
         self.player = None  # Will be created when game starts
@@ -130,6 +138,7 @@ class Silksong:
         # Camera system
         self.camera_x = 0
         self.camera_y = 0
+        self.player_camera_anchor_y = None
         self.mouse_locked = False
 
         # Cache last saved state so we can save only when something changes
@@ -139,8 +148,6 @@ class Silksong:
         self.player_contact_damage_cooldown = 0.75
         self.player_contact_damage_timer = 0.0
         self.attack_damage = 1
-        self.attack_range = 70
-        self.attack_height_padding = 25
         self.silk_per_hit = 1
         self.player_near_bench = False
         self.bench_interact_text = ""
@@ -149,17 +156,14 @@ class Silksong:
         self.ground_colliders = []
 
     def _build_ground_colliders(self):
-        """Build world-space ground colliders for multi-level terrain."""
+        """Build one flat world-space ground collider under Hornet."""
         if not self.player:
             self.ground_colliders = []
             return
 
         base_y = int(self.player.ground_level)
         self.ground_colliders = [
-            pygame.Rect(-6000, base_y, 4800, 2000),
-            pygame.Rect(-1200, base_y - 140, 1400, 2140),
-            pygame.Rect(200, base_y - 40, 2000, 2040),
-            pygame.Rect(2200, base_y - 200, 4000, 2200),
+            pygame.Rect(-50000, base_y, 100000, 2000),
         ]
 
     def _get_ground_top_at_world_x(self, world_x):
@@ -171,19 +175,26 @@ class Silksong:
                     top_y = ground_rect.top
         return top_y
 
+    def _snap_player_to_ground(self):
+        """Snap Hornet onto the ground/platform at current world X and reset vertical state."""
+        if not self.player:
+            return
+
+        player_world_center_x = int(self.player.rect.centerx + self.camera_x)
+        ground_top = self._get_ground_top_at_world_x(player_world_center_x)
+        if ground_top is None:
+            ground_top = int(self.player.ground_level)
+
+        # Keep player at the anchored screen Y by solving camera_y from desired world bottom.
+        self.camera_y = int(ground_top - self.player.rect.bottom)
+        self.player.velocity_y = 0
+        self.player.on_ground = True
+
     def _update_mouse_lock(self):
-        """Lock mouse during gameplay and release it in non-game states."""
-        if self.state == "game":
-            if not self.mouse_locked:
-                pygame.event.set_grab(True)
-                pygame.mouse.get_rel()  # Reset relative movement accumulator
-                self.mouse_locked = True
-            # Keep cursor pinned to center so it cannot drift
-            pygame.mouse.set_pos((config.screen_width // 2, config.screen_height // 2))
-        else:
-            if self.mouse_locked:
-                pygame.event.set_grab(False)
-                self.mouse_locked = False
+        """Keep mouse unlocked so in-game UI remains clickable."""
+        if self.mouse_locked:
+            pygame.event.set_grab(False)
+            self.mouse_locked = False
 
     def create_buttons(self):
         """Create buttons for the title screen."""
@@ -216,101 +227,107 @@ class Silksong:
         pass
 
     def update_game(self, dt):
-        if self.player:
-            # Get keyboard state
-            keys = pygame.key.get_pressed()
-            camera_movement = self.player.handle_input(keys)
+        self.game_back_button.update(dt)
+
+        if self.player is None:
+            return
+
+        player = self.player
+
+        # Get keyboard state
+        keys = pygame.key.get_pressed()
+        camera_movement = player.handle_input(keys)
 
             # Update camera position based on player movement
-            if camera_movement:
-                self.camera_x += camera_movement[0] * dt
-                self.camera_y += camera_movement[1] * dt
+        if camera_movement:
+            self.camera_x += camera_movement[0] * dt
+            self.camera_y += camera_movement[1] * dt
 
-            self.player.update(
-                dt,
-                collision_rects=self.ground_colliders,
-                camera_x=self.camera_x,
-                camera_y=self.camera_y
-            )
+        player.update(
+            dt,
+            collision_rects=self.ground_colliders,
+            camera_x=self.camera_x,
+            camera_y=self.camera_y
+        )
 
-            player_world_rect = self.player.rect.copy()
-            player_world_rect.x += int(self.camera_x)
+            # Keep Hornet vertically anchored on screen and move camera instead.
+        if self.player_camera_anchor_y is None:
+            self.player_camera_anchor_y = int(player.rect.y)
+        vertical_delta = int(player.rect.y - self.player_camera_anchor_y)
+        if vertical_delta != 0:
+            self.camera_y += vertical_delta
+            player.rect.y = int(self.player_camera_anchor_y)
 
-            bench_rect = self.player.bench.rect
-            self.player_near_bench = player_world_rect.colliderect(bench_rect)
-            self.bench_interact_text = ""
+        player_world_rect = player.rect.copy()
+        player_world_rect.x += int(self.camera_x)
 
-            interact_pressed = keys[pygame.K_w]
-            can_rest = self.player_near_bench and self.player.on_ground and not self.player.is_resting
-            if can_rest:
-                self.bench_interact_text = "Bench - Press W to Rest"
-                if interact_pressed and not self._bench_interact_key_down:
-                    self.player.start_rest()
-                    self.respawn_position = [int(player_world_rect.x), int(player_world_rect.y)]
-                    self.save_current_game_state(force=True)
-            self._bench_interact_key_down = interact_pressed
+        bench_rect = player.bench.rect
+        self.player_near_bench = player_world_rect.colliderect(bench_rect)
+        self.bench_interact_text = ""
 
-            if self.player.health <= 0:
-                self.respawn_player()
-                return
+        interact_pressed = keys[pygame.K_w]
+        can_rest = self.player_near_bench and player.on_ground and not player.is_resting
+        if can_rest:
+            self.bench_interact_text = "Bench - Press W to Rest"
+            if interact_pressed and not self._bench_interact_key_down:
+                player.start_rest()
+                self.respawn_position = [int(player_world_rect.x), int(player_world_rect.y)]
+                self.save_current_game_state(force=True)
 
-            if self.player_contact_damage_timer > 0.0:
-                self.player_contact_damage_timer = max(0.0, self.player_contact_damage_timer - dt)
+        self._bench_interact_key_down = interact_pressed
+
+        if player.health <= 0:
+            self.respawn_player()
+            return
+
+        if self.player_contact_damage_timer > 0.0:
+            self.player_contact_damage_timer = max(0.0, self.player_contact_damage_timer - dt)
             
             # Update enemy and resolve combat interactions
             
-            total_d = 300
-            grubleftground = self.player.rect.centerx - total_d/2
-            grubrightbound = self.player.rect.centerx+total_d/2
+        total_d = 300
+        grubleftground = player.rect.centerx - total_d / 2
+        grubrightbound = player.rect.centerx + total_d / 2
 
-            if self.mossgrub and self.mossgrub.health > 0:
-                self.mossgrub.update(grubleftground, grubrightbound, dt)
+        if self.mossgrub and self.mossgrub.health > 0:
+            self.mossgrub.update(grubleftground, grubrightbound, dt)
 
-                if self.player.consume_attack_trigger():
-                    if self.player.facing_right:
-                        attack_rect = pygame.Rect(
-                            player_world_rect.right,
-                            player_world_rect.top + self.attack_height_padding,
-                            self.attack_range,
-                            max(10, player_world_rect.height - self.attack_height_padding * 2)
-                        )
-                    else:
-                        attack_rect = pygame.Rect(
-                            player_world_rect.left - self.attack_range,
-                            player_world_rect.top + self.attack_height_padding,
-                            self.attack_range,
-                            max(10, player_world_rect.height - self.attack_height_padding * 2)
-                        )
+            if player.consume_attack_trigger():
+                attack_rect = player.start_attack_hitbox(
+                    camera_x=self.camera_x,
+                    camera_y=self.camera_y,
+                )
 
-                    if attack_rect.colliderect(self.mossgrub.rect):
-                        self.mossgrub.take_damage(self.attack_damage)
-                        self.player.gain_silk(self.silk_per_hit)
+                if attack_rect.colliderect(self.mossgrub.rect):
+                    knockback_direction = 1 if player_world_rect.centerx < self.mossgrub.rect.centerx else -1
+                    self.mossgrub.take_damage(self.attack_damage, knockback_direction=knockback_direction)
+                    player.gain_silk(self.silk_per_hit)
 
-                if player_world_rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
-                    knockback_direction = -1 if player_world_rect.centerx < self.mossgrub.rect.centerx else 1
-                    self.player.take_damage(1, knockback_direction=knockback_direction)
-                    self.player_contact_damage_timer = self.player_contact_damage_cooldown
+            if player_world_rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
+                knockback_direction = -1 if player_world_rect.centerx < self.mossgrub.rect.centerx else 1
+                player.take_damage(1, knockback_direction=knockback_direction)
+                self.player_contact_damage_timer = self.player_contact_damage_cooldown
 
-            # Persist whenever tracked game state changes (including mid-air positions)
-            self.save_current_game_state()
+        if self.mossgrub and self.mossgrub.health <= 0:
+            if self._bench_interact_key_down:
+                self.respawn_mossgrub()
+
+        # Persist whenever tracked game state changes (including mid-air positions)
+        self.save_current_game_state()
 
     def respawn_player(self):
         """Respawn Hornet at the latest rested bench position."""
         respawn_x = int(self.player.rect.x)
-        respawn_y = int(self.player.rect.y)
 
         if isinstance(self.respawn_position, list) and len(self.respawn_position) >= 2:
             respawn_x = int(self.respawn_position[0])
-            respawn_y = int(self.respawn_position[1])
 
-        respawn_center_x = respawn_x + self.player.rect.width // 2
-        ground_top = self._get_ground_top_at_world_x(respawn_center_x)
-        self.player.rect.bottom = int(ground_top if ground_top is not None else self.player.ground_level)
+        # Restore world X from respawn, then snap vertically to actual ground.
+        self.camera_x = respawn_x - self.player.rect.x
+        self._snap_player_to_ground()
+
         self.player.velocity_x = 0
         self.player.velocity_y = 0
-
-        self.camera_x = respawn_x - self.player.rect.x
-        self.camera_y = respawn_y - self.player.rect.y
         self.player.health = self.player.max_health
         self.player.cancel_heal_channel()
         self.player.is_resting = False
@@ -318,6 +335,15 @@ class Silksong:
         self.player.velocity_y = 0
         self.player.on_ground = True
         self.player_contact_damage_timer = 0.0
+        self.save_current_game_state(force=True)
+
+    def respawn_mossgrub(self):
+        """Respawn MossGrub at the latest rested bench position."""
+        self.mossgrub.health = self.mossgrub.max_health
+        self.mossgrub.rest_timer = 0.0
+        self.mossgrub.velocity_y = 0
+        self.mossgrub.on_ground = True
+        self.mossgrub_contact_damage_timer = 0.0
         self.save_current_game_state(force=True)
 
     def save_current_game_state(self, force=False):
@@ -430,16 +456,31 @@ class Silksong:
             for y_offset in (0, bg_height, bg_height * 2):
                 self.screen.blit(self.background_image, (base_x + x_offset, base_y + y_offset))
         
-        # Draw ground/platform top lines for visual reference
-        for ground_rect in self.ground_colliders:
-            start_pos = (int(ground_rect.left - self.camera_x), int(ground_rect.top - self.camera_y - look_y))
-            end_pos = (int(ground_rect.right - self.camera_x), int(ground_rect.top - self.camera_y - look_y))
-            pygame.draw.line(self.screen, (255, 255, 255), start_pos, end_pos, 2)
+        # Draw a single ground baseline under Hornet.
+        if self.ground_colliders:
+            ground_y = int(self.ground_colliders[0].top - self.camera_y - look_y)
+            pygame.draw.line(self.screen, (255, 255, 255), (0, ground_y), (config.screen_width, ground_y), 2)
         
         # Draw player (offset by look_y so player moves with the world)
         if self.player:
             self.player.bench.draw(self.screen, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y)
             self.player.draw(self.screen, look_y_offset=-look_y)
+
+            # Debug: highlight Hornet collision rect.
+            player_debug_rect = self.player.rect.copy()
+            player_debug_rect.y -= int(look_y)
+            pygame.draw.rect(self.screen, (0, 255, 80), player_debug_rect, 2)
+
+            # Debug: highlight Hornet attack hitbox while active.
+            if self.player.attack_hitbox:
+                attack_draw_rect = self.player.attack_hitbox.copy()
+                attack_draw_rect.x -= int(self.camera_x)
+                attack_draw_rect.y -= int(self.camera_y + look_y)
+
+                attack_fill = pygame.Surface((attack_draw_rect.width, attack_draw_rect.height), pygame.SRCALPHA)
+                attack_fill.fill((255, 200, 60, 85))
+                self.screen.blit(attack_fill, attack_draw_rect.topleft)
+                pygame.draw.rect(self.screen, (255, 230, 120), attack_draw_rect, 2)
 
         # Draw enemy with camera offset
         if self.mossgrub and self.mossgrub.health > 0:
@@ -451,6 +492,9 @@ class Silksong:
                 self.screen.blit(self.mossgrub.image_flipped, enemy_draw_rect)
             else:
                 self.screen.blit(self.mossgrub.image, enemy_draw_rect)
+
+            # Debug: highlight Mossgrub collision rect.
+            pygame.draw.rect(self.screen, (255, 70, 70), enemy_draw_rect, 2)
 
         # HUD: health, silk, and healing state
         if self.player:
@@ -477,13 +521,15 @@ class Silksong:
                 bg.fill((0, 0, 0, 150))
                 self.screen.blit(bg, bg_rect.topleft)
                 self.screen.blit(prompt_surface, prompt_rect)
+
+        self.game_back_button.draw(self.screen)
     
     def draw(self):
         """Render the game."""
         if self.cursor_image:
             pygame.mouse.set_visible(False)
         else:
-            pygame.mouse.set_visible(self.state != "game")
+            pygame.mouse.set_visible(True)
 
         if self.state == "title screen":
             self.draw_title_screen()
@@ -510,7 +556,7 @@ class Silksong:
             self.transition_manager.draw(self.screen)
 
         # Draw custom cursor on top of all UI
-        if self.cursor_image and self.state != "game":
+        if self.cursor_image:
             mouse_x, mouse_y = pygame.mouse.get_pos()
             self.screen.blit(self.cursor_image, (mouse_x - self.cursor_hotspot[0], mouse_y - self.cursor_hotspot[1]))
         
@@ -562,7 +608,7 @@ class Silksong:
                     continue
 
             if event.type == pygame.MOUSEBUTTONDOWN:
-                pos = pygame.mouse.get_pos()  # Mouse coordinates
+                pos = event.pos
 
                 if self.state == "title screen":
                     if self.buttons['start'].is_clicked(pos):
@@ -577,7 +623,7 @@ class Silksong:
                         self.change_state("settings")
                 
                 elif self.state == "save files":
-                    action = self.save_file.handle_event()
+                    action = self.save_file.handle_event(pos)
                     if action == "close":
                         # Close button was clicked, return to title screen
                         self.change_state("title screen")
@@ -600,6 +646,7 @@ class Silksong:
                         self.mossgrub.on_ground = True
                         self.camera_x = 0
                         self.camera_y = 0
+                        self.player_camera_anchor_y = int(self.player.rect.y)
                         self.respawn_position = [
                             int(self.player.rect.x + self.camera_x),
                             int(self.player.rect.y + self.camera_y)
@@ -629,6 +676,12 @@ class Silksong:
                                     self.player.rect.x = saved_x
                                     self.player.rect.y = saved_y
 
+                        # Rebuild colliders after loading world position so spawn platform is under Hornet.
+                        self._build_ground_colliders()
+
+                        # Force a valid floor spawn to prevent falling into void from stale/corrupt Y saves.
+                        self._snap_player_to_ground()
+
                         saved_respawn_position = loaded_state.get("player_respawn_position")
                         if isinstance(saved_respawn_position, list) and len(saved_respawn_position) >= 2:
                             self.respawn_position = [int(saved_respawn_position[0]), int(saved_respawn_position[1])]
@@ -650,12 +703,19 @@ class Silksong:
                         self.player_near_bench = False
                         self.bench_interact_text = ""
                         self._bench_interact_key_down = False
+                        self.player_camera_anchor_y = int(self.player.rect.y)
                         # Persist state immediately so schema stays up-to-date
                         self.save_current_game_state(force=True)
 
                         # Start game
                         self.change_state("game")
                     # Delete actions are handled within save_file.handle_event
+
+                elif self.state == "game":
+                    if self.game_back_button.is_clicked(pos):
+                        self.audio_manager.play_sfx("button_click")
+                        self.save_current_game_state(force=True)
+                        self.change_state("title screen")
 
     def run(self):
         while self.running:
