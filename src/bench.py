@@ -3,11 +3,11 @@ import os
 
 
 class Bench:
-    '''
-    Bench class for the game.
-    '''
+    """Bench class for the game."""
+    
     def __init__(self, x, y):
-        """Initialize the bench
+        """
+        Initialize the bench
         Args:
             x (float): Initial x position (sprite bottom-center X)
             y (float): Initial y position (sprite bottom-center Y)

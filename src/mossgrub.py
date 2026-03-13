@@ -77,16 +77,49 @@ class MossGrub:
             elif knockback_direction > 0:
                 self.knockback_velocity_x = self.knockback_strength
        
-    def update(self, min_x, max_x, dt, collision_rects = None):
+    def update(self, min_x, max_x, dt, collision_rects = None, camera_x = 0, camera_y = 0):
         """Update mossgrub position and physics.
         Args:
             dt (float): Delta time in seconds
             min_x (int): left boundary
             max_x (int): right boundary
         """
-        # Apply gravity
+               # Apply gravity
         self.velocity_y += self.gravity * dt
         self.rect.y += self.velocity_y * dt
+
+        landed = False
+        if collision_rects:
+            world_rect = self.rect.copy()
+            world_rect.x += int(camera_x)
+            world_rect.y += int(camera_y)
+            previous_bottom = world_rect.bottom - (self.velocity_y * dt)
+
+            landing_top = None
+            if self.velocity_y >= 0:
+                for ground_rect in collision_rects:
+                    if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
+                        continue
+                    if previous_bottom <= ground_rect.top and world_rect.bottom >= ground_rect.top:
+                        if landing_top is None or ground_rect.top < landing_top:
+                            landing_top = ground_rect.top
+
+            if landing_top is not None:
+                world_rect.bottom = int(landing_top)
+                self.rect.y = int(world_rect.y - camera_y)
+                self.velocity_y = 0
+                self.on_ground = True
+                self._rebound_available = False
+                landed = True
+
+        if not landed:
+            if collision_rects:
+                self.on_ground = False
+            elif self.rect.bottom >= self.ground_level:
+                self.rect.bottom = self.ground_level
+                self.velocity_y = 0
+                self.on_ground = True
+                self._rebound_available = False
         
         # Ground collision
         if self.rect.bottom >= self.ground_level:

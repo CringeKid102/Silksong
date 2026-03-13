@@ -340,7 +340,6 @@ class Silksong:
     def respawn_mossgrub(self):
         """Respawn MossGrub at the latest rested bench position."""
         self.mossgrub.health = self.mossgrub.max_health
-        self.mossgrub.rest_timer = 0.0
         self.mossgrub.velocity_y = 0
         self.mossgrub.on_ground = True
         self.mossgrub_contact_damage_timer = 0.0
@@ -486,7 +485,7 @@ class Silksong:
         if self.mossgrub and self.mossgrub.health > 0:
             enemy_draw_rect = self.mossgrub.rect.copy()
             enemy_draw_rect.x -= int(self.camera_x)
-            enemy_draw_rect.y -= int(self.camera_y + look_y)
+            enemy_draw_rect.y -= int(self.camera_y + look_y) + 50
 
             if self.mossgrub.facing_right == 1:
                 self.screen.blit(self.mossgrub.image_flipped, enemy_draw_rect)

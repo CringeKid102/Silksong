@@ -36,12 +36,11 @@ class SaveSlotButton:
         slider_path = os.path.join(os.path.dirname(__file__), "../assets/images/MenuSliderHandle.png")
         if os.path.exists(slider_path):
             self.hover_pointer = pygame.image.load(slider_path).convert_alpha()
-            # Scale slider to appropriate size
+            # Scale slider
             pointer_size = int(70 * config.scale_x)
             self.hover_pointer = pygame.transform.scale(self.hover_pointer, (pointer_size, pointer_size))
         else:
             self.hover_pointer = None
-        
         
         # Font for "New File" text
         self.font = config.get_font(int(36 * config.scale_y))
@@ -63,7 +62,7 @@ class SaveSlotButton:
     
     def draw(self, screen: pygame.Surface):
         """Draw the save slot button."""
-        # Draw background or "New File" text
+        # Draw background or "NEW GAME" text
         if self.save_exists and self.background_img:
             # Draw background image
             screen.blit(self.background_img, (self.x, self.y))
@@ -103,7 +102,6 @@ class SaveSlotButton:
     def is_clicked(self, pos):
         """Check if button is clicked."""
         return self.rect.collidepoint(pos) and self.active
-
 
 class TrashButton:
     """Custom trash button with hover animation and pointer effects."""
@@ -469,15 +467,15 @@ class SaveFile:
             except (IOError, json.JSONDecodeError):
                 self.slot_status_cache[slot_num] = None
 
-    def handle_event(self):
+    def handle_event(self, pos):
         """
         Handle Pygame events for save file selection.
+        Args:
+            pos (tuple[int, int]): Mouse position from the click event.
         Returns:
             str: 'close' if back button clicked, 'delete_{slot}' if delete button clicked,
                  'start_{slot}' if save slot selected, or None if no action
         """
-        pos = pygame.mouse.get_pos()  # Mouse coordinates
-        
         # Check trash buttons first (they have priority)
         for slot_num in [1, 2, 3, 4]:
             if self.trash_buttons[slot_num].is_clicked(pos):
@@ -528,6 +526,7 @@ class SaveFile:
             return "close"
         
         return None 
+
     def update(self, dt: float):
         """
         Update all button states and animations.

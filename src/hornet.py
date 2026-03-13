@@ -31,12 +31,24 @@ class Hornet:
         self.velocity_x = 0
         self.velocity_y = 0
         self.speed = 300  # Horizontal movement speed (pixels per second)
-        self.jump_power = -600  # Jump velocity (negative is up)
+        self.jump_power = -750  # Max jump velocity (negative is up)
+        self.jump_initial_impulse = -280  # Small upward kick on first frame
+        self.jump_sustain_accel = -2800  # Upward acceleration while SPACE held
+        self.jump_max_hold_time = 0.18  # Max seconds SPACE adds upward force
+        self._jump_hold_timer = 0.0
+        self.jump_cut_multiplier = 0.05  # Velocity multiplied when jump released early
         self.gravity = 1800  # Gravity acceleration (pixels per second squared)
         self.on_ground = False
+        self._jump_held = False  # Whether jump key is currently held
+        self._jumping = False  # True while in a jump that can still be cut short
+        self._rebound_available = False  # Set when a down-attack hits; cleared on landing or release
         self.knockback_velocity_x = 0.0
         self.knockback_strength = 520.0
         self.knockback_decay = 1600.0
+
+        # Diagonal down-attack charge
+        self.down_attack_charge_speed = 900.0  # Horizontal burst speed
+        self.down_attack_dive_speed = 600.0    # Extra downward speed added
         
         # Screen boundaries
         self.screen_width = screen_width
@@ -108,10 +120,11 @@ class Hornet:
         # Placeholder for future animation loading
         pass
     
-    def handle_input(self, keys):
+    def handle_input(self, keys, dt=0.016):
         """Handle keyboard input for movement.
         Args:
             keys: pygame key state dictionary
+            dt: delta time in seconds
         Returns:
             tuple: (velocity_x, velocity_y) for camera movement
         """
@@ -139,14 +152,43 @@ class Hornet:
             self.velocity_x = self.speed
             self.facing_right = True
         
-        # Jumping
-        if keys[pygame.K_SPACE] and self.on_ground:
-            self.velocity_y = self.jump_power
+        # Jumping (variable height: hold SPACE for higher jump)
+        jump_pressed = keys[pygame.K_SPACE]
+
+        if jump_pressed and self.on_ground:
+            self.velocity_y = self.jump_initial_impulse
             self.on_ground = False
+            self._jumping = True
+            self._jump_hold_timer = 0.0
             try:
                 self.audio_manager.play_sfx("hornet_jump")
             except Exception:
                 pass  # Skip if sound doesn't exist
+
+        # Auto-rebound from down-attack: variable height via jump hold
+        if self._rebound_available:
+            self._rebound_available = False
+            self._jumping = True
+            self._jump_hold_timer = 0.0
+
+        # While holding SPACE during a jump, keep adding upward force
+        if self._jumping and jump_pressed and self._jump_hold_timer < self.jump_max_hold_time:
+            self._jump_hold_timer += dt
+            self.velocity_y += self.jump_sustain_accel * dt
+            # Clamp to max jump velocity
+            if self.velocity_y < self.jump_power:
+                self.velocity_y = self.jump_power
+
+        # Cut jump short when SPACE released while still rising
+        if self._jumping and not jump_pressed and self.velocity_y < 0:
+            self.velocity_y = 0
+            self._jumping = False
+
+        # Stop variable-jump tracking once falling
+        if self._jumping and self.velocity_y >= 0:
+            self._jumping = False
+
+        self._jump_held = jump_pressed
 
         # Attack
         if keys[pygame.K_j] and self._attack_timer <= 0.0:
@@ -156,6 +198,10 @@ class Hornet:
                 self.attack_hitbox_direction = "up"
             elif keys[pygame.K_s]:
                 self.attack_hitbox_direction = "down"
+                # Fast diagonal charge in facing direction + downward
+                direction = 1 if self.facing_right else -1
+                self.knockback_velocity_x = direction * self.down_attack_charge_speed
+                self.velocity_y = self.down_attack_dive_speed
             else:
                 self.attack_hitbox_direction = "forward"
             try:
@@ -179,16 +225,21 @@ class Hornet:
             except Exception:
                 pass  # Skip if sound doesn't exist
         
+        # Do not let vertical attack inputs, horizontal movement, or jumping drive camera panning.
+        directional_attack_active = self._attack_timer > 0.0 and self.attack_hitbox_direction in ("up", "down")
+        moving_horizontally = self.velocity_x != 0
+        in_air = not self.on_ground
+
         # Look up/down
-        looking = False
-        if keys[pygame.K_w]:
-            looking = True
+        if directional_attack_active or moving_horizontally or in_air:
+            self.look_direction = 0
+            self.look_hold_timer = 0.0
+        elif keys[pygame.K_w]:
             if self.look_direction != -1:
                 # Started pressing up, reset timer
                 self.look_hold_timer = 0.0
                 self.look_direction = -1
         elif keys[pygame.K_s]:
-            looking = True
             if self.look_direction != 1:
                 # Started pressing down, reset timer
                 self.look_hold_timer = 0.0
@@ -319,6 +370,27 @@ class Hornet:
             self.knockback_velocity_x = -self.knockback_strength
         elif knockback_direction > 0:
             self.knockback_velocity_x = self.knockback_strength
+
+    def rebound_from_down_attack(self, enemy_rect=None, camera_y=0):
+        """Launch Hornet upward after a successful downward strike.
+
+        The rebound uses the same variable-height jump: hold SPACE to
+        rise higher, release early for a short bounce.
+        """
+        if self.attack_hitbox_direction != "down" or self.on_ground:
+            return False
+
+        if enemy_rect is not None:
+            desired_world_bottom = int(enemy_rect.top - 6)
+            current_world_bottom = int(self.rect.bottom + camera_y)
+            if current_world_bottom > desired_world_bottom:
+                self.rect.bottom = int(desired_world_bottom - camera_y)
+
+        self.velocity_y = self.jump_power
+        self.on_ground = False
+        self._rebound_available = True
+        self._jumping = False
+        return True
     
     def update(self, dt, collision_rects=None, camera_x=0, camera_y=0):
         """Update player position and physics.
@@ -390,6 +462,7 @@ class Hornet:
                 self.rect.y = int(world_rect.y - camera_y)
                 self.velocity_y = 0
                 self.on_ground = True
+                self._rebound_available = False
                 landed = True
 
         if not landed:
@@ -399,6 +472,7 @@ class Hornet:
                 self.rect.bottom = self.ground_level
                 self.velocity_y = 0
                 self.on_ground = True
+                self._rebound_available = False
         
         if self.attack_hitbox_timer > 0.0:
             # Keep active attack hitbox attached to Hornet in world-space.
