@@ -139,7 +139,7 @@ class ParticleSystem:
             y (float): Y position for the popup.
         """
         txt = f"{'+' if delta>0 else ''}{int(delta)}"
-        col = (255,0,0) if delta > 0 else (0,255,0)
+        col = (0,255,0) if delta > 0 else (255,0,0)
         self.float_texts.append({
             'text': txt,
             'x': x + random.uniform(-12, 12),

@@ -46,6 +46,26 @@ class Hornet:
         self.knockback_strength = 520.0
         self.knockback_decay = 1600.0
 
+        # Wall jump / wall slide
+        self.touching_wall_left = False
+        self.touching_wall_right = False
+        self.wall_jump_power_x = 450.0
+        self.wall_jump_power_y = -680.0
+        self.wall_slide_speed = 120.0
+        self._wall_jump_timer = 0.0
+        self._wall_jump_cooldown = 0.15
+
+        # Ledge climb
+        self.is_climbing_ledge = False
+        self.ledge_climb_timer = 0.0
+        self.ledge_climb_duration = 0.3
+        self._ledge_target_world_y = 0
+        self._ledge_wall_direction = 0
+        self._pressing_down = False
+
+        # Camera correction for wall collisions
+        self.camera_x_correction = 0.0
+
         # Diagonal down-attack charge
         self.down_attack_charge_speed = 900.0  # Horizontal burst speed
         self.down_attack_dive_speed = 600.0    # Extra downward speed added
@@ -53,7 +73,6 @@ class Hornet:
         # Screen boundaries
         self.screen_width = screen_width
         self.screen_height = screen_height
-        self.ground_level = screen_height // 2 + self.rect.width  # Ground position
         
         # Facing direction (for future sprite flipping)
         self.facing_right = True
@@ -61,8 +80,8 @@ class Hornet:
         # Audio manager instance
         self.audio_manager = AudioManager()
 
-        # Initialize bench
-        self.bench = Bench(screen_width // 2, self.ground_level)
+        # Initialize bench (main.py anchors it to world ground collider)
+        self.bench = Bench(screen_width // 2, y)
 
         # Bench rest state
         self.is_resting = False
@@ -130,6 +149,7 @@ class Hornet:
         """
         # Horizontal movement (returns velocity for camera)
         self._attack_triggered = False
+        self._pressing_down = keys[pygame.K_s]
         self.velocity_x = 0
 
         # Heal input (edge-triggered, consume all silk)
@@ -138,7 +158,7 @@ class Hornet:
             self.start_heal_channel()
         self._heal_key_down = shift_pressed
 
-        if self.is_healing or self.is_resting:
+        if self.is_healing or self.is_resting or self.is_climbing_ledge:
             self.look_direction = 0
             self.look_hold_timer = 0.0
             self._camera_velocity[0] = self.knockback_velocity_x
@@ -170,6 +190,31 @@ class Hornet:
             self._rebound_available = False
             self._jumping = True
             self._jump_hold_timer = 0.0
+
+        # Wall jump (edge-triggered: fresh SPACE press while touching wall in air)
+        if jump_pressed and not self._jump_held and not self.on_ground and self._wall_jump_timer <= 0.0:
+            if self.touching_wall_left:
+                self.velocity_y = self.wall_jump_power_y
+                self.knockback_velocity_x = self.wall_jump_power_x
+                self._wall_jump_timer = self._wall_jump_cooldown
+                self._jumping = True
+                self._jump_hold_timer = 0.0
+                self.facing_right = True
+                try:
+                    self.audio_manager.play_sfx("hornet_jump")
+                except Exception:
+                    pass
+            elif self.touching_wall_right:
+                self.velocity_y = self.wall_jump_power_y
+                self.knockback_velocity_x = -self.wall_jump_power_x
+                self._wall_jump_timer = self._wall_jump_cooldown
+                self._jumping = True
+                self._jump_hold_timer = 0.0
+                self.facing_right = False
+                try:
+                    self.audio_manager.play_sfx("hornet_jump")
+                except Exception:
+                    pass
 
         # While holding SPACE during a jump, keep adding upward force
         if self._jumping and jump_pressed and self._jump_hold_timer < self.jump_max_hold_time:
@@ -364,6 +409,9 @@ class Hornet:
         if self.is_resting:
             self.is_resting = False
             self.rest_timer = 0.0
+        if self.is_climbing_ledge:
+            self.is_climbing_ledge = False
+            self.ledge_climb_timer = 0.0
         self.health = max(0, self.health - damage)
 
         if knockback_direction < 0:
@@ -408,6 +456,8 @@ class Hornet:
             self._dash_timer = max(0.0, self._dash_timer - dt)
         if self._special_timer > 0.0:
             self._special_timer = max(0.0, self._special_timer - dt)
+        if self._wall_jump_timer > 0.0:
+            self._wall_jump_timer = max(0.0, self._wall_jump_timer - dt)
 
         if self.is_resting:
             self.rest_timer = max(0.0, self.rest_timer - dt)
@@ -437,43 +487,150 @@ class Hornet:
             else:
                 self.camera_look_y = 0.0
         
-        # Apply gravity
-        self.velocity_y += self.gravity * dt
-        self.rect.y += self.velocity_y * dt
+        # Reset per-frame wall correction
+        self.camera_x_correction = 0.0
 
-        landed = False
-        if collision_rects:
-            world_rect = self.rect.copy()
-            world_rect.x += int(camera_x)
-            world_rect.y += int(camera_y)
-            previous_bottom = world_rect.bottom - (self.velocity_y * dt)
-
-            landing_top = None
-            if self.velocity_y >= 0:
-                for ground_rect in collision_rects:
-                    if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
-                        continue
-                    if previous_bottom <= ground_rect.top and world_rect.bottom >= ground_rect.top:
-                        if landing_top is None or ground_rect.top < landing_top:
-                            landing_top = ground_rect.top
-
-            if landing_top is not None:
-                world_rect.bottom = int(landing_top)
-                self.rect.y = int(world_rect.y - camera_y)
+        if self.is_climbing_ledge:
+            # Ledge climb animation: move upward toward ledge top
+            self.ledge_climb_timer -= dt
+            target_world_bottom = self._ledge_target_world_y
+            current_world_bottom = self.rect.bottom + camera_y
+            climb_speed = 500.0
+            if current_world_bottom > target_world_bottom:
+                move = min(climb_speed * dt, current_world_bottom - target_world_bottom)
+                self.rect.y -= int(move)
+            if self.ledge_climb_timer <= 0.0 or self.rect.bottom + camera_y <= target_world_bottom + 2:
+                self.rect.bottom = int(target_world_bottom - camera_y)
+                push_distance = self.rect.width // 2 + 5
+                if self._ledge_wall_direction == 1:
+                    self.camera_x_correction = push_distance
+                else:
+                    self.camera_x_correction = -push_distance
+                self.is_climbing_ledge = False
+                self.ledge_climb_timer = 0.0
                 self.velocity_y = 0
                 self.on_ground = True
-                self._rebound_available = False
-                landed = True
+        else:
+            # Apply gravity
+            self.velocity_y += self.gravity * dt
 
-        if not landed:
+            # Wall slide: limit fall speed when touching a wall in the air
+            if not self.on_ground and self.velocity_y > 0 and (self.touching_wall_left or self.touching_wall_right):
+                if self.velocity_y > self.wall_slide_speed:
+                    self.velocity_y = self.wall_slide_speed
+
+            self.rect.y += self.velocity_y * dt
+
+            landed = False
             if collision_rects:
-                self.on_ground = False
-            elif self.rect.bottom >= self.ground_level:
-                self.rect.bottom = self.ground_level
-                self.velocity_y = 0
-                self.on_ground = True
-                self._rebound_available = False
-        
+                world_rect = self.rect.copy()
+                world_rect.x += int(camera_x)
+                world_rect.y += int(camera_y)
+                previous_bottom = world_rect.bottom - (self.velocity_y * dt)
+
+                # Ceiling collision (elevated platforms only)
+                if self.velocity_y < 0:
+                    previous_top = world_rect.top - (self.velocity_y * dt)
+                    for cr in collision_rects:
+                        if cr.width > 5000:
+                            continue
+                        if world_rect.right <= cr.left or world_rect.left >= cr.right:
+                            continue
+                        if previous_top >= cr.bottom and world_rect.top <= cr.bottom:
+                            world_rect.top = cr.bottom
+                            self.rect.y = int(world_rect.y - camera_y)
+                            self.velocity_y = 0
+                            break
+
+                # Landing collision
+                landing_top = None
+                if self.velocity_y >= 0:
+                    for ground_rect in collision_rects:
+                        if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
+                            continue
+                        if previous_bottom <= ground_rect.top and world_rect.bottom >= ground_rect.top:
+                            if landing_top is None or ground_rect.top < landing_top:
+                                landing_top = ground_rect.top
+
+                if landing_top is not None:
+                    world_rect.bottom = int(landing_top)
+                    self.rect.y = int(world_rect.y - camera_y)
+                    self.velocity_y = 0
+                    self.on_ground = True
+                    self._rebound_available = False
+                    landed = True
+
+            if not landed:
+                if collision_rects:
+                    self.on_ground = False
+                else:
+                    self.on_ground = False
+
+            # Horizontal (wall) collision detection
+            self.touching_wall_left = False
+            self.touching_wall_right = False
+
+            if collision_rects:
+                world_rect = self.rect.copy()
+                world_rect.x += int(camera_x)
+                world_rect.y += int(camera_y)
+
+                for cr in collision_rects:
+                    if cr.width > 5000:
+                        continue
+                    if not world_rect.colliderect(cr):
+                        continue
+                    if world_rect.bottom <= cr.top + 4:
+                        continue
+
+                    overlap_right = world_rect.right - cr.left
+                    overlap_left = cr.right - world_rect.left
+                    overlap_bottom = world_rect.bottom - cr.top
+                    overlap_top = cr.bottom - world_rect.top
+
+                    min_h = min(overlap_right, overlap_left)
+                    min_v = min(overlap_bottom, overlap_top)
+
+                    if min_h >= min_v:
+                        continue
+
+                    if overlap_right < overlap_left:
+                        self.camera_x_correction -= overlap_right
+                        self.touching_wall_right = True
+                    else:
+                        self.camera_x_correction += overlap_left
+                        self.touching_wall_left = True
+
+            # Ledge detection: auto-grab when falling against a wall
+            if not self.on_ground and self.velocity_y >= 0 and not self._pressing_down:
+                if self.touching_wall_right or self.touching_wall_left:
+                    wr = self.rect.copy()
+                    wr.x += int(camera_x)
+                    wr.y += int(camera_y)
+
+                    for cr in collision_rects or []:
+                        if cr.width > 5000:
+                            continue
+                        ledge_top = cr.top
+                        if ledge_top < wr.top - 10 or ledge_top > wr.centery:
+                            continue
+                        if self.touching_wall_right and wr.right >= cr.left - 5 and wr.left < cr.right:
+                            self.is_climbing_ledge = True
+                            self.ledge_climb_timer = self.ledge_climb_duration
+                            self._ledge_target_world_y = ledge_top
+                            self._ledge_wall_direction = 1
+                            self.velocity_y = 0
+                            self.knockback_velocity_x = 0
+                            break
+                        elif self.touching_wall_left and wr.left <= cr.right + 5 and wr.right > cr.left:
+                            self.is_climbing_ledge = True
+                            self.ledge_climb_timer = self.ledge_climb_duration
+                            self._ledge_target_world_y = ledge_top
+                            self._ledge_wall_direction = -1
+                            self.velocity_y = 0
+                            self.knockback_velocity_x = 0
+                            break
+
         if self.attack_hitbox_timer > 0.0:
             # Keep active attack hitbox attached to Hornet in world-space.
             world_rect = self.rect.copy()
@@ -536,3 +693,8 @@ class Hornet:
         self.attack_hitbox_timer = 0.0
         self.attack_hitbox_facing_right = self.facing_right
         self.attack_hitbox_direction = "forward"
+        self.is_climbing_ledge = False
+        self.ledge_climb_timer = 0.0
+        self.touching_wall_left = False
+        self.touching_wall_right = False
+        self.camera_x_correction = 0.0
