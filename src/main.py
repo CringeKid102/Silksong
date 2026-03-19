@@ -13,6 +13,7 @@ from settings import SettingsMenu
 from save_file import SaveFile
 from hornet import Hornet
 from mossgrub import MossGrub
+from moss_mother import MossMother
 
 
 # Initialize pygame
@@ -134,6 +135,7 @@ class Silksong:
         # Initialize player (Hornet)
         self.player = None  # Will be created when game starts
         self.mossgrub = None # Will be created when game starts
+        self.mossmother = None # Will be created when game starts
         
         # Camera system
         self.camera_x = 0
@@ -341,13 +343,22 @@ class Silksong:
                                 camera_dx=camera_dx,
                                 camera_dy=camera_dy)
 
-            if player.consume_attack_trigger():
-                attack_rect = player.start_attack_hitbox(
-                    camera_x=self.camera_x,
-                    camera_y=self.camera_y,
-                )
+        if self.mossmother and self.mossmother.health > 0:
+            self.mossmother.update(grubleftground, grubrightbound, dt,
+                                collision_rects=self.ground_colliders,
+                                camera_x=self.camera_x,
+                                camera_y=self.camera_y,
+                                camera_dx=camera_dx,
+                                camera_dy=camera_dy,
+                                player_world_rect=player_world_rect)
 
-                # Convert mossgrub screen rect to world space for attack collision
+        if player.consume_attack_trigger():
+            attack_rect = player.start_attack_hitbox(
+                camera_x=self.camera_x,
+                camera_y=self.camera_y,
+            )
+
+            if self.mossgrub and self.mossgrub.health > 0:
                 mossgrub_world = self.mossgrub.rect.copy()
                 mossgrub_world.x += int(self.camera_x)
                 mossgrub_world.y += int(self.camera_y)
@@ -356,15 +367,41 @@ class Silksong:
                     self.mossgrub.take_damage(self.attack_damage, knockback_direction=knockback_direction)
                     player.gain_silk(self.silk_per_hit)
 
-            # Contact damage: compare both in screen space
-            if player.rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
-                mossgrub_world = self.mossgrub.rect.copy()
-                mossgrub_world.x += int(self.camera_x)
-                mossgrub_world.y += int(self.camera_y)
-                knockback_direction = -1 if player_world_rect.centerx < mossgrub_world.centerx else 1
-                player.take_damage(1, knockback_direction=knockback_direction)
-                self.player_contact_damage_timer = self.player_contact_damage_cooldown
+            if self.mossmother and self.mossmother.health > 0:
+                mossmother_world = self.mossmother.rect.copy()
+                mossmother_world.x += int(self.camera_x)
+                mossmother_world.y += int(self.camera_y)
+                if attack_rect.colliderect(mossmother_world):
+                    knockback_direction = 1 if player_world_rect.centerx < mossmother_world.centerx else -1
+                    self.mossmother.take_damage(self.attack_damage, knockback_direction=knockback_direction)
+                    player.gain_silk(self.silk_per_hit)
 
+        # Contact damage: compare both in screen space
+        if self.mossgrub and self.mossgrub.health > 0 and player.rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
+            mossgrub_world = self.mossgrub.rect.copy()
+            mossgrub_world.x += int(self.camera_x)
+            mossgrub_world.y += int(self.camera_y)
+            knockback_direction = -1 if player_world_rect.centerx < mossgrub_world.centerx else 1
+            player.take_damage(1, knockback_direction=knockback_direction)
+            self.player_contact_damage_timer = self.player_contact_damage_cooldown
+
+        if self.mossmother and self.mossmother.health > 0:
+            mossmother_world = self.mossmother.rect.copy()
+            mossmother_world.x += int(self.camera_x)
+            mossmother_world.y += int(self.camera_y)
+
+            if self.mossmother.is_attacking:
+                if not self.mossmother.attack_contact_registered and mossmother_world.colliderect(player_world_rect):
+                    self.mossmother.attack_contact_registered = True
+                    self.mossmother.phase_through = True
+                    knockback_direction = -1 if player_world_rect.centerx < mossmother_world.centerx else 1
+                    player.take_damage(1, knockback_direction=knockback_direction)
+                    self.player_contact_damage_timer = self.player_contact_damage_cooldown
+            else:
+                if player.rect.colliderect(self.mossmother.rect) and self.player_contact_damage_timer <= 0.0:
+                    knockback_direction = -1 if player_world_rect.centerx < mossmother_world.centerx else 1
+                    player.take_damage(1, knockback_direction=knockback_direction)
+                    self.player_contact_damage_timer = self.player_contact_damage_cooldown
         if self.mossgrub and self.mossgrub.health <= 0:
             if self._bench_interact_key_down:
                 self.respawn_mossgrub()
@@ -398,6 +435,9 @@ class Silksong:
         """Respawn MossGrub at the latest rested bench position."""
         self.mossgrub.health = self.mossgrub.max_health
         self._snap_mossgrub_to_ground()
+        if self.mossmother:
+            self.mossmother.health = self.mossmother.max_health
+            self.mossmother.reset_position(self.mossmother.rect.centerx, self.mossmother.rect.bottom)
         self.save_current_game_state(force=True)
 
     def save_current_game_state(self, force=False):
@@ -412,6 +452,8 @@ class Silksong:
 
         mossgrub_position = None
         mossgrub_health = None
+        mossmother_position = None
+        mossmother_health = None
         if self.mossgrub:
             # Convert screen-space rect to world space for saving
             mossgrub_position = [
@@ -419,6 +461,12 @@ class Silksong:
                 int(self.mossgrub.rect.y + self.camera_y)
             ]
             mossgrub_health = self.mossgrub.health
+        if self.mossmother:
+            mossmother_position = [
+                int(self.mossmother.rect.x + self.camera_x),
+                int(self.mossmother.rect.y + self.camera_y)
+            ]
+            mossmother_health = self.mossmother.health
 
         state_signature = (
             player_world_x,
@@ -429,6 +477,8 @@ class Silksong:
             tuple(self.respawn_position) if self.respawn_position else None,
             tuple(mossgrub_position) if mossgrub_position else None,
             mossgrub_health,
+            tuple(mossmother_position) if mossmother_position else None,
+            mossmother_health,
         )
 
         if not force and state_signature == self._last_saved_signature:
@@ -444,6 +494,8 @@ class Silksong:
             "player_respawn_position": self.respawn_position,
             "mossgrub_position": mossgrub_position,
             "mossgrub_health": mossgrub_health,
+            "mossmother_position": mossmother_position,
+            "mossmother_health": mossmother_health,
         })
         self.save_file.save_game_file(base_state, self.current_slot)
         self.game_state = base_state
@@ -551,7 +603,7 @@ class Silksong:
                 self.screen.blit(attack_fill, attack_draw_rect.topleft)
                 pygame.draw.rect(self.screen, (255, 230, 120), attack_draw_rect, 2)
 
-        # Draw enemy (rect is now in screen space)
+        # Draw MossGrub (rect is now in screen space)
         if self.mossgrub and self.mossgrub.health > 0:
             enemy_draw_rect = self.mossgrub.rect.copy()
             enemy_draw_rect.y -= int(look_y)
@@ -561,8 +613,19 @@ class Silksong:
             else:
                 self.screen.blit(self.mossgrub.image, enemy_draw_rect)
 
-            # Debug: highlight Mossgrub collision rect.
             pygame.draw.rect(self.screen, (255, 70, 70), enemy_draw_rect, 2)
+
+        # Draw Moss Mother (rect is now in screen space)
+        if self.mossmother and self.mossmother.health > 0:
+            mother_draw_rect = self.mossmother.rect.copy()
+            mother_draw_rect.y -= int(look_y)
+
+            if self.mossmother.facing_right:
+                self.screen.blit(self.mossmother.image, mother_draw_rect)
+            else:
+                self.screen.blit(self.mossmother.image_flipped, mother_draw_rect)
+
+            pygame.draw.rect(self.screen, (255, 170, 70), mother_draw_rect, 2)
 
         # HUD: health, silk, and healing state
         if self.player:
@@ -707,6 +770,7 @@ class Silksong:
                         start_x = config.screen_width // 2
                         self.player = Hornet(start_x, 0, config.screen_width, config.screen_height)
                         self.mossgrub = MossGrub(start_x, 0, config.screen_width, config.screen_height)
+                        self.mossmother = MossMother(start_x, 0, config.screen_width, config.screen_height)
                         self.player.reset_position(start_x, self.world_ground_y)
                         self.player.on_ground = True
                         self._build_ground_colliders()
@@ -755,16 +819,26 @@ class Silksong:
                             spawn_platform = self.ground_colliders[1]
                             mossgrub_world_x = int(spawn_platform.centerx)
                             mossgrub_world_bottom = int(spawn_platform.top - 120)
+                            mossmother_world_x = int(spawn_platform.centerx + 240)
+                            mossmother_world_bottom = int(spawn_platform.top - 180)
                         else:
                             ground_top = self.ground_colliders[0].top if self.ground_colliders else int(self.world_ground_y)
                             mossgrub_world_x = int(start_x + self.camera_x + 240)
                             mossgrub_world_bottom = int(ground_top - 120)
+                            mossmother_world_x = int(start_x + self.camera_x - 240)
+                            mossmother_world_bottom = int(ground_top - 180)
 
                         mossgrub_screen_x = int(mossgrub_world_x - self.camera_x)
                         mossgrub_screen_bottom = int(mossgrub_world_bottom - self.camera_y)
                         self.mossgrub.rect.midbottom = (mossgrub_screen_x, mossgrub_screen_bottom)
                         self.mossgrub.on_ground = False
                         self.mossgrub.velocity_y = 0
+
+                        mossmother_screen_x = int(mossmother_world_x - self.camera_x)
+                        mossmother_screen_bottom = int(mossmother_world_bottom - self.camera_y)
+                        self.mossmother.rect.midbottom = (mossmother_screen_x, mossmother_screen_bottom)
+                        self.mossmother.on_ground = False
+                        self.mossmother.velocity_y = 0
 
                         saved_respawn_position = loaded_state.get("player_respawn_position")
                         if isinstance(saved_respawn_position, list) and len(saved_respawn_position) >= 2:
@@ -783,6 +857,15 @@ class Silksong:
 
                         saved_mossgrub_health = loaded_state.get("mossgrub_health", self.mossgrub.health)
                         self.mossgrub.health = max(0, min(self.mossgrub.max_health, int(saved_mossgrub_health)))
+
+                        saved_mossmother_position = loaded_state.get("mossmother_position")
+                        if self.mossmother and isinstance(saved_mossmother_position, list) and len(saved_mossmother_position) >= 2:
+                            self.mossmother.rect.x = int(saved_mossmother_position[0]) - int(self.camera_x)
+                            self.mossmother.rect.y = int(saved_mossmother_position[1]) - int(self.camera_y)
+
+                        saved_mossmother_health = loaded_state.get("mossmother_health", self.mossmother.health if self.mossmother else 0)
+                        if self.mossmother:
+                            self.mossmother.health = max(0, min(self.mossmother.max_health, int(saved_mossmother_health)))
 
                         self.player_contact_damage_timer = 0.0
                         self.player_near_bench = False

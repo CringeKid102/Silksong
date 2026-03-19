@@ -14,7 +14,7 @@ class MossGrub:
             screen_height (int): Height of the game screen
         """
         # Load and scale player image
-        image_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet.webp")
+        image_path = os.path.join(os.path.dirname(__file__), "../assets/images/mossgrub.png")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
         scale_factor = 0.25
@@ -88,7 +88,7 @@ class MossGrub:
         self.rect.x -= int(camera_dx)
         self.rect.y -= int(camera_dy)
 
-        # Apply gravity (same vertical model as Hornet).
+        # Apply gravity
         self.velocity_y += self.gravity * dt
         self.rect.y += self.velocity_y * dt
 
@@ -99,7 +99,7 @@ class MossGrub:
             world_rect.y += int(camera_y)
             previous_bottom = world_rect.bottom - (self.velocity_y * dt)
 
-            # Ceiling collision on elevated platforms, same rule used by Hornet.
+            # Ceiling collision on elevated platforms
             if self.velocity_y < 0:
                 previous_top = world_rect.top - (self.velocity_y * dt)
                 for cr in collision_rects:
@@ -113,7 +113,7 @@ class MossGrub:
                         self.velocity_y = 0
                         break
 
-            # Landing collision, sweep test like Hornet.
+            # Landing collision
             landing_top = None
             if self.velocity_y >= 0:
                 for ground_rect in collision_rects:

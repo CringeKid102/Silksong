@@ -2,21 +2,26 @@
     "level": 1,
     "score": 0,
     "player_position": [
-        957,
+        877,
         445
     ],
     "inventory": [],
-    "player_health": 5,
-    "player_silk": 9,
+    "player_health": 1,
+    "player_silk": 2,
     "player_facing_right": true,
     "player_respawn_position": [
-        724,
+        730,
         445
     ],
     "mossgrub_position": [
-        1090,
-        445
+        1002,
+        524
     ],
-    "mossgrub_health": 971,
-    "player_position_space": "world"
+    "mossgrub_health": 0,
+    "player_position_space": "world",
+    "mossmother_position": [
+        835,
+        437
+    ],
+    "mossmother_health": 3000
 }
