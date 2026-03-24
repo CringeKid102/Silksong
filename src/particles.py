@@ -105,15 +105,16 @@ class ParticleSystem:
         to_spawn = min(count, available)
         for _ in range(to_spawn):
             life = random.uniform(15.0, 20.0)  # Much longer life to traverse the screen
-            # Velocity moves diagonally from bottom-left to top-right
-            vx = random.uniform(80, 120)  # Move right faster
-            vy = random.uniform(-120, -90)  # Move up faster
-            initial_size = random.uniform(2, 5)
+            # Velocity moves diagonally from bottom-left to top-right, much faster
+            vx = random.uniform(360, 480)  # Move right much faster
+            vy = random.uniform(-480, -360)  # Move up much faster
+            # Size with stronger bias towards smaller (farther) particles
+            initial_size = 1 + 9 * (random.uniform(0, 1) ** 3)
             # Random size change behavior
             size_change_rate = random.uniform(-0.5, 0.5)  # Can grow or shrink
             self.particles.append({
-                'x': x + random.uniform(-self.screen_width, 10),
-                'y': y + random.uniform(-self.screen_height, self.screen_height),
+                'x': x + random.uniform(-self.screen_width, self.screen_width),
+                'y': y + random.uniform(self.screen_height, 0),
                 'vx': vx,
                 'vy': vy,
                 'life': life,
@@ -121,13 +122,16 @@ class ParticleSystem:
                 'size': initial_size,
                 'initial_size': initial_size,
                 'size_change_rate': size_change_rate,
-                'min_size': 1.0,
-                'max_size': 8.0,
+                'min_size': 3.0,
+                'max_size': 10.0,
                 'color': None,
                 'gravity': 0,  # No gravity for floating embers
                 'type': 'ember',
                 'image': image,
-                'angle': random.uniform(-20, 20)  # Random rotation angle ±25 degrees
+                'angle': random.uniform(-20, 20),  # Random rotation angle ±25 degrees
+                'time': 0,  # For sin wave movement
+                'sin_freq': random.uniform(1, 5),  # Frequency for sin wave
+                'sin_amp': random.uniform(2, 8)  # Smaller amplitude for sin wave
             })
 
     def add_detection_popup(self, delta: int, x: float, y: float):
@@ -171,6 +175,11 @@ class ParticleSystem:
                 # Clamp size within bounds
                 p['size'] = max(p.get('min_size', 0.5), min(p.get('max_size', 10.0), p['size']))
             
+            # Sin wave movement for embers
+            if p['type'] == 'ember':
+                p['time'] += dt
+                p['x'] += math.sin(p['time'] * p['sin_freq']) * p['sin_amp']
+            
             if p['life'] > 0:
                 alive_particles.append(p)
         self.particles = alive_particles
@@ -198,7 +207,7 @@ class ParticleSystem:
         # Handle automatic ember spawning
         if self.ember_enabled and self.ember_image and self.screen_width and self.screen_height:
             self.ember_spawn_timer += dt
-            if self.ember_spawn_timer >= 0.1:  # Spawn every 0.1 seconds
+            if self.ember_spawn_timer >= 0.05:  # Spawn more frequently
                 self.ember_spawn_timer = 0.0
                 # Randomly choose to spawn from bottom edge or left edge
                 if random.choice([True, False]):
@@ -209,15 +218,24 @@ class ParticleSystem:
                     # Spawn from left edge (anywhere along the left side)
                     spawn_x = random.uniform(0, self.screen_width * 0.05)
                     spawn_y = random.uniform(0, self.screen_height)
-                self.spawn_embers(spawn_x, spawn_y, count=1, image=self.ember_image)
+                self.spawn_embers(spawn_x, spawn_y, count=random.randint(1, 3), image=self.ember_image)
 
-    def draw_particles(self, surface: pygame.Surface):
+    def draw_particles(self, surface: pygame.Surface, size_min=None, size_max=None):
         """
         Draw the particles on the given surface.
         Args:
             surface (pygame.Surface): The surface to draw on.
+            size_min (float): Minimum size to draw (inclusive).
+            size_max (float): Maximum size to draw (inclusive).
         """
+        # Sort particles by size for depth effect (smaller = farther = behind, larger = closer = in front)
+        self.particles.sort(key=lambda p: p.get('size', 0))
+        
         for p in self.particles:
+            if size_min is not None and p.get('size', 0) < size_min:
+                continue
+            if size_max is not None and p.get('size', 0) > size_max:
+                continue
             life_frac = max(0.0, min(1.0, p['life'] / max(0.001, p.get('initial_life', p['life']))))
             alpha = int(255 * life_frac)
             

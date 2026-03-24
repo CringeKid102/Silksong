@@ -522,18 +522,21 @@ class Silksong:
         # Draw background
         self.screen.blit(self.background_image, (0, 0))
         
-        # Draw ember particles
-        self.particle_system.draw_particles(self.screen)
+        # Draw small ember particles
+        self.particle_system.draw_particles(self.screen, size_max=6.0)
         
         # Draw the Silksong title image
         title_rect = self.title_image.get_rect(center=(config.screen_width/2, int(config.screen_height/2 - 200 * config.scale_y)))
         self.screen.blit(self.title_image, title_rect)
         
-        # Draw title spikes (you can adjust positions as needed)
+        # Draw title spikes (boneforest images)
         self.screen.blit(self.title_needle, (int(1500 * config.scale_x), int(175 * config.scale_y)))
         self.screen.blit(self.title_pin, (int(1300 * config.scale_x), int(475 * config.scale_y)))
         self.screen.blit(self.title_boulder, (int(1050 * config.scale_x), int(850 * config.scale_y)))
         self.screen.blit(self.title_spike, (int(1050 * config.scale_x), int(850 * config.scale_y)))
+
+        # Draw large ember particles (in front of boneforest)
+        self.particle_system.draw_particles(self.screen, size_min=5.0)
 
         # Draw buttons
         for button in self.buttons.values():
