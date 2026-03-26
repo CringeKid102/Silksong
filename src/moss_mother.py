@@ -99,6 +99,70 @@ class MossMother:
         world_y = self.rect.centery + int(camera_y)
         return world_x, world_y
 
+    def _resolve_horizontal_collisions(self, collision_rects, camera_x=0, camera_y=0):
+        if not collision_rects:
+            return
+
+        world_rect = self.rect.copy()
+        world_rect.x += int(camera_x)
+        world_rect.y += int(camera_y)
+
+        for cr in collision_rects:
+            # Match Hornet/MossGrub wall behavior; the huge ground rect is floor-only.
+            if cr.width > 5000:
+                continue
+            if not world_rect.colliderect(cr):
+                continue
+            if world_rect.bottom <= cr.top + 4:
+                continue
+
+            overlap_right = world_rect.right - cr.left
+            overlap_left = cr.right - world_rect.left
+            overlap_bottom = world_rect.bottom - cr.top
+            overlap_top = cr.bottom - world_rect.top
+
+            min_h = min(overlap_right, overlap_left)
+            min_v = min(overlap_bottom, overlap_top)
+
+            if min_h >= min_v:
+                continue
+
+            if overlap_right < overlap_left:
+                world_rect.right = cr.left
+                self.facing_right = False
+            else:
+                world_rect.left = cr.right
+                self.facing_right = True
+
+            self.rect.x = int(world_rect.x - camera_x)
+
+    def _resolve_vertical_collisions(self, collision_rects, camera_x=0, camera_y=0):
+        if not collision_rects:
+            return
+
+        world_rect = self.rect.copy()
+        world_rect.x += int(camera_x)
+        world_rect.y += int(camera_y)
+
+        landed = False
+        for cr in collision_rects:
+            if not world_rect.colliderect(cr):
+                continue
+
+            overlap_bottom = world_rect.bottom - cr.top
+            overlap_top = cr.bottom - world_rect.top
+
+            if overlap_bottom <= overlap_top:
+                world_rect.bottom = cr.top
+                landed = True
+            else:
+                world_rect.top = cr.bottom
+
+            self.rect.y = int(world_rect.y - camera_y)
+            self.velocity_y = 0.0
+
+        self.on_ground = landed
+
     def _find_bfs_next_point(self, start_world, target_world, collision_rects):
         if collision_rects is None:
             return target_world
@@ -220,7 +284,7 @@ class MossMother:
 
         self.attack_contact_registered = False
 
-    def _update_curve_attack(self, dt, player_world_rect=None, camera_x=0, camera_y=0):
+    def _update_curve_attack(self, dt, player_world_rect=None, camera_x=0, camera_y=0, collision_rects=None):
         self.attack_phase_time += dt
 
         if self.attack_step == 0:
@@ -232,6 +296,8 @@ class MossMother:
             y = sy + (my - sy) * t + (self.attack_curve_depth * (t ** 2) * (1 - t))
             self.rect.centerx = int(x - camera_x)
             self.rect.centery = int(y - camera_y)
+            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
+            self._resolve_vertical_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
             if t >= 1.0:
                 self.attack_step = 1
                 self.attack_phase_time = 0.0
@@ -245,6 +311,8 @@ class MossMother:
             y = my + (iy - my) * t
             self.rect.centerx = int(x - camera_x)
             self.rect.centery = int(y - camera_y)
+            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
+            self._resolve_vertical_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
 
             if player_world_rect and not self.attack_contact_registered:
                 world_hitbox = self.rect.copy()
@@ -267,6 +335,8 @@ class MossMother:
             y = iy + (ty - iy) * t - (self.attack_curve_depth / 2.0 * (1 - (2 * (t - 0.5)) ** 2))
             self.rect.centerx = int(x - camera_x)
             self.rect.centery = int(y - camera_y)
+            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
+            self._resolve_vertical_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
 
             if t >= 1.0:
                 self.attack_step = 0
@@ -316,7 +386,10 @@ class MossMother:
         self.velocity_y = norm_y * self.speed
 
         self.rect.x += int(self.velocity_x * dt)
+        self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
+
         self.rect.y += int(self.velocity_y * dt)
+        self._resolve_vertical_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
 
         if self.velocity_x > 0:
             self.facing_right = True
@@ -438,7 +511,7 @@ class MossMother:
         if not self.use_gravity:
             # Flying behavior
             if self.is_attacking:
-                self._update_curve_attack(dt, player_world_rect=player_world_rect, camera_x=camera_x, camera_y=camera_y)
+                self._update_curve_attack(dt, player_world_rect=player_world_rect, camera_x=camera_x, camera_y=camera_y, collision_rects=collision_rects)
                 return
 
             if player_world_rect is not None:
@@ -456,6 +529,7 @@ class MossMother:
 
             # add knockback to flight.
             self.rect.x += int(self.knockback_velocity_x * dt)
+            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
 
             # Keep the boss in patrol bounds like MossGrub
             if self.rect.centerx >= max_x:

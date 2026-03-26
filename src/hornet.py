@@ -32,7 +32,7 @@ class Hornet:
         self.velocity_y = 0
         self.speed = 300  # Horizontal movement speed (pixels per second)
         self.jump_power = -750  # Max jump velocity (negative is up)
-        self.jump_initial_impulse = -280  # Small upward kick on first frame
+        self.jump_initial_impulse = -800  # Small upward kick on first frame
         self.jump_sustain_accel = -2800  # Upward acceleration while SPACE held
         self.jump_max_hold_time = 0.18  # Max seconds SPACE adds upward force
         self._jump_hold_timer = 0.0
@@ -50,10 +50,11 @@ class Hornet:
         self.touching_wall_left = False
         self.touching_wall_right = False
         self.wall_jump_power_x = 450.0
-        self.wall_jump_power_y = -680.0
+        # Use full jump lift so repeated wall jumps climb quickly.
+        self.wall_jump_power_y = self.jump_power
         self.wall_slide_speed = 120.0
         self._wall_jump_timer = 0.0
-        self._wall_jump_cooldown = 0.15
+        self._wall_jump_cooldown = 0.08
 
         # Ledge climb
         self.is_climbing_ledge = False
@@ -69,6 +70,7 @@ class Hornet:
         # Diagonal down-attack charge
         self.down_attack_charge_speed = 900.0  # Horizontal burst speed
         self.down_attack_dive_speed = 600.0    # Extra downward speed added
+        self.down_attack_rebound_horizontal_scale = 0.2
         
         # Screen boundaries
         self.screen_width = screen_width
@@ -121,14 +123,21 @@ class Hornet:
         self._attack_triggered = False
         self._heal_key_down = False
 
-        # Dedicated attack hitbox state (world-space rect, short visual lifetime)
+        # Dedicated attack hitbox state
         self.attack_range = 70
         self.attack_height_padding = 25
         self.attack_hitbox_duration = 0.12
+        self.down_attack_hitbox_duration = 0.20
         self.attack_hitbox_timer = 0.0
         self.attack_hitbox = None
         self.attack_hitbox_facing_right = True
         self.attack_hitbox_direction = "forward"
+        self.attack_hit_mossgrub = False
+        self.attack_hit_mossmother = False
+        self.is_down_attacking = False
+        self.down_attack_rebound_timer = 0.0
+        self.down_attack_jump_lock_duration = 0.3
+        self.down_attack_jump_lock_timer = 0.0
 
         #Respawn point
         self.respawn_x = x
@@ -172,10 +181,11 @@ class Hornet:
             self.velocity_x = self.speed
             self.facing_right = True
         
-        # Jumping (variable height: hold SPACE for higher jump)
+        # Jumping
         jump_pressed = keys[pygame.K_SPACE]
+        jump_locked = self.down_attack_jump_lock_timer > 0.0
 
-        if jump_pressed and self.on_ground:
+        if jump_pressed and self.on_ground and not jump_locked:
             self.velocity_y = self.jump_initial_impulse
             self.on_ground = False
             self._jumping = True
@@ -192,7 +202,7 @@ class Hornet:
             self._jump_hold_timer = 0.0
 
         # Wall jump (edge-triggered: fresh SPACE press while touching wall in air)
-        if jump_pressed and not self._jump_held and not self.on_ground and self._wall_jump_timer <= 0.0:
+        if jump_pressed and not self._jump_held and not self.on_ground and self._wall_jump_timer <= 0.0 and not jump_locked:
             if self.touching_wall_left:
                 self.velocity_y = self.wall_jump_power_y
                 self.knockback_velocity_x = self.wall_jump_power_x
@@ -225,7 +235,7 @@ class Hornet:
                 self.velocity_y = self.jump_power
 
         # Cut jump short when SPACE released while still rising
-        if self._jumping and not jump_pressed and self.velocity_y < 0:
+        if self._jumping and not jump_pressed and self.velocity_y < 0 and self.down_attack_rebound_timer <= 0.0:
             self.velocity_y = 0
             self._jumping = False
 
@@ -243,12 +253,14 @@ class Hornet:
                 self.attack_hitbox_direction = "up"
             elif keys[pygame.K_s]:
                 self.attack_hitbox_direction = "down"
+                self.is_down_attacking = True
                 # Fast diagonal charge in facing direction + downward
                 direction = 1 if self.facing_right else -1
                 self.knockback_velocity_x = direction * self.down_attack_charge_speed
                 self.velocity_y = self.down_attack_dive_speed
             else:
                 self.attack_hitbox_direction = "forward"
+                self.is_down_attacking = False
             try:
                 self.audio_manager.play_sfx("hornet_attack")
             except Exception:
@@ -340,7 +352,12 @@ class Hornet:
         world_rect.y += int(camera_y)
         self.attack_hitbox_facing_right = self.facing_right
         self.attack_hitbox = self._build_attack_hitbox(world_rect)
-        self.attack_hitbox_timer = self.attack_hitbox_duration
+        self.attack_hit_mossgrub = False
+        self.attack_hit_mossmother = False
+        if self.attack_hitbox_direction == "down":
+            self.attack_hitbox_timer = self.down_attack_hitbox_duration
+        else:
+            self.attack_hitbox_timer = self.attack_hitbox_duration
         return self.attack_hitbox.copy()
 
     def gain_silk(self, amount):
@@ -434,10 +451,14 @@ class Hornet:
             if current_world_bottom > desired_world_bottom:
                 self.rect.bottom = int(desired_world_bottom - camera_y)
 
-        self.velocity_y = self.jump_power
+        self.velocity_y = self.jump_initial_impulse
+        self.knockback_velocity_x *= self.down_attack_rebound_horizontal_scale
         self.on_ground = False
-        self._rebound_available = True
-        self._jumping = False
+        self._rebound_available = False
+        self._jumping = True
+        self._jump_hold_timer = 0.0
+        self.is_down_attacking = False
+        self.down_attack_rebound_timer = max(self.down_attack_rebound_timer, self.attack_hitbox_timer)
         return True
     
     def update(self, dt, collision_rects=None, camera_x=0, camera_y=0):
@@ -458,6 +479,10 @@ class Hornet:
             self._special_timer = max(0.0, self._special_timer - dt)
         if self._wall_jump_timer > 0.0:
             self._wall_jump_timer = max(0.0, self._wall_jump_timer - dt)
+        if self.down_attack_rebound_timer > 0.0:
+            self.down_attack_rebound_timer = max(0.0, self.down_attack_rebound_timer - dt)
+        if self.down_attack_jump_lock_timer > 0.0:
+            self.down_attack_jump_lock_timer = max(0.0, self.down_attack_jump_lock_timer - dt)
 
         if self.is_resting:
             self.rest_timer = max(0.0, self.rest_timer - dt)
@@ -514,10 +539,15 @@ class Hornet:
             # Apply gravity
             self.velocity_y += self.gravity * dt
 
-            # Wall slide: limit fall speed when touching a wall in the air
-            if not self.on_ground and self.velocity_y > 0 and (self.touching_wall_left or self.touching_wall_right):
-                if self.velocity_y > self.wall_slide_speed:
-                    self.velocity_y = self.wall_slide_speed
+            if self.down_attack_rebound_timer > 0.0:
+                self.velocity_y = self.jump_initial_impulse
+                self.on_ground = False
+                self._jumping = True
+
+            # Wall slide: always engage on wall contact in air (outside immediate wall-jump impulse).
+            # This prevents jump-hold from creating upward wall-glide.
+            if not self.on_ground and (self.touching_wall_left or self.touching_wall_right) and self._wall_jump_timer <= 0.0 and self.down_attack_rebound_timer <= 0.0:
+                self.velocity_y = self.wall_slide_speed
 
             self.rect.y += self.velocity_y * dt
 
@@ -558,6 +588,10 @@ class Hornet:
                     self.velocity_y = 0
                     self.on_ground = True
                     self._rebound_available = False
+                    self.down_attack_rebound_timer = 0.0
+                    if self.is_down_attacking:
+                        self.down_attack_jump_lock_timer = self.down_attack_jump_lock_duration
+                        self.is_down_attacking = False
                     landed = True
 
             if not landed:
@@ -601,6 +635,10 @@ class Hornet:
                         self.camera_x_correction += overlap_left
                         self.touching_wall_left = True
 
+                    if self.is_down_attacking:
+                        self.down_attack_jump_lock_timer = self.down_attack_jump_lock_duration
+                        self.is_down_attacking = False
+
             # Ledge detection: auto-grab when falling against a wall
             if not self.on_ground and self.velocity_y >= 0 and not self._pressing_down:
                 if self.touching_wall_right or self.touching_wall_left:
@@ -641,6 +679,8 @@ class Hornet:
             self.attack_hitbox_timer = max(0.0, self.attack_hitbox_timer - dt)
             if self.attack_hitbox_timer <= 0.0:
                 self.attack_hitbox = None
+                self.attack_hit_mossgrub = False
+                self.attack_hit_mossmother = False
         
         # Prevent falling off screen top
         if self.rect.top < 0:
@@ -693,6 +733,11 @@ class Hornet:
         self.attack_hitbox_timer = 0.0
         self.attack_hitbox_facing_right = self.facing_right
         self.attack_hitbox_direction = "forward"
+        self.attack_hit_mossgrub = False
+        self.attack_hit_mossmother = False
+        self.is_down_attacking = False
+        self.down_attack_rebound_timer = 0.0
+        self.down_attack_jump_lock_timer = 0.0
         self.is_climbing_ledge = False
         self.ledge_climb_timer = 0.0
         self.touching_wall_left = False

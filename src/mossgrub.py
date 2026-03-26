@@ -126,12 +126,23 @@ class MossGrub:
                 # Fallback: if already slightly inside a platform (e.g., after hit/lag spike),
                 # snap back to the nearest valid top surface to avoid tunneling.
                 if landing_top is None:
+                    embedded_top = None
+                    below_top = None
                     for ground_rect in collision_rects:
                         if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
                             continue
                         if world_rect.top < ground_rect.top <= world_rect.bottom:
-                            if landing_top is None or ground_rect.top < landing_top:
-                                landing_top = ground_rect.top
+                            if embedded_top is None or ground_rect.top < embedded_top:
+                                embedded_top = ground_rect.top
+                        elif ground_rect.top <= world_rect.top:
+                            if below_top is None or ground_rect.top > below_top:
+                                below_top = ground_rect.top
+
+                    if embedded_top is not None:
+                        landing_top = embedded_top
+                    elif below_top is not None:
+                        # Recovery path for bad/stale Y positions already below floor.
+                        landing_top = below_top
 
             if landing_top is not None:
                 world_rect.bottom = int(landing_top)

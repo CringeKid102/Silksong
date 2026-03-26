@@ -353,28 +353,39 @@ class Silksong:
                                 player_world_rect=player_world_rect)
 
         if player.consume_attack_trigger():
-            attack_rect = player.start_attack_hitbox(
+            player.start_attack_hitbox(
                 camera_x=self.camera_x,
                 camera_y=self.camera_y,
             )
+
+        if player.attack_hitbox:
+            attack_rect = player.attack_hitbox
 
             if self.mossgrub and self.mossgrub.health > 0:
                 mossgrub_world = self.mossgrub.rect.copy()
                 mossgrub_world.x += int(self.camera_x)
                 mossgrub_world.y += int(self.camera_y)
                 if attack_rect.colliderect(mossgrub_world):
-                    knockback_direction = 1 if player_world_rect.centerx < mossgrub_world.centerx else -1
-                    self.mossgrub.take_damage(self.attack_damage, knockback_direction=knockback_direction)
-                    player.gain_silk(self.silk_per_hit)
+                    if not player.attack_hit_mossgrub:
+                        knockback_direction = 1 if player_world_rect.centerx < mossgrub_world.centerx else -1
+                        self.mossgrub.take_damage(self.attack_damage, knockback_direction=knockback_direction)
+                        player.gain_silk(self.silk_per_hit)
+                        player.attack_hit_mossgrub = True
+                    if player.attack_hitbox_direction == "down":
+                        player.rebound_from_down_attack(enemy_rect=mossgrub_world, camera_y=self.camera_y)
 
             if self.mossmother and self.mossmother.health > 0:
                 mossmother_world = self.mossmother.rect.copy()
                 mossmother_world.x += int(self.camera_x)
                 mossmother_world.y += int(self.camera_y)
                 if attack_rect.colliderect(mossmother_world):
-                    knockback_direction = 1 if player_world_rect.centerx < mossmother_world.centerx else -1
-                    self.mossmother.take_damage(self.attack_damage, knockback_direction=knockback_direction)
-                    player.gain_silk(self.silk_per_hit)
+                    if not player.attack_hit_mossmother:
+                        knockback_direction = 1 if player_world_rect.centerx < mossmother_world.centerx else -1
+                        self.mossmother.take_damage(self.attack_damage, knockback_direction=knockback_direction)
+                        player.gain_silk(self.silk_per_hit)
+                        player.attack_hit_mossmother = True
+                    if player.attack_hitbox_direction == "down":
+                        player.rebound_from_down_attack(enemy_rect=mossmother_world, camera_y=self.camera_y)
 
         # Contact damage: compare both in screen space
         if self.mossgrub and self.mossgrub.health > 0 and player.rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
@@ -855,8 +866,16 @@ class Silksong:
                         saved_mossgrub_position = loaded_state.get("mossgrub_position")
                         if isinstance(saved_mossgrub_position, list) and len(saved_mossgrub_position) >= 2:
                             # Convert saved world-space position to screen space
-                            self.mossgrub.rect.x = int(saved_mossgrub_position[0]) - int(self.camera_x)
-                            self.mossgrub.rect.y = int(saved_mossgrub_position[1]) - int(self.camera_y)
+                            saved_mossgrub_world_x = int(saved_mossgrub_position[0])
+                            saved_mossgrub_world_y = int(saved_mossgrub_position[1])
+                            self.mossgrub.rect.x = saved_mossgrub_world_x - int(self.camera_x)
+                            self.mossgrub.rect.y = saved_mossgrub_world_y - int(self.camera_y)
+
+                            ground_top = self._get_ground_top_at_world_x(saved_mossgrub_world_x)
+                            if ground_top is not None:
+                                saved_mossgrub_world_bottom = saved_mossgrub_world_y + self.mossgrub.rect.height
+                                if saved_mossgrub_world_bottom > ground_top + 2:
+                                    self._snap_mossgrub_to_ground(world_x=saved_mossgrub_world_x)
 
                         saved_mossgrub_health = loaded_state.get("mossgrub_health", self.mossgrub.health)
                         self.mossgrub.health = max(0, min(self.mossgrub.max_health, int(saved_mossgrub_health)))
