@@ -12,7 +12,7 @@ class MossMother:
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/moss_mother.png")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
-        scale_factor = 0.25
+        scale_factor = 0.45
         self.image = pygame.transform.scale(self.image, (int(source_width * scale_factor), int(source_height * scale_factor)))
         self.image_flipped = pygame.transform.flip(self.image, True, False)
 
@@ -324,15 +324,16 @@ class MossMother:
 
             if t >= 1.0:
                 self.attack_step = 2
-                self.attack_phase_time = 0.0
+                self.attack_phase_time = 0.0        
+        
 
-        elif self.attack_step == 2:
+        elif self.attack_step == 2:          
             # Ascent diagonally to next attack starting point on other side.
             t = min(1.0, self.attack_phase_time / self.attack_ascent_duration)
             ix, iy = self.attack_impact_end
             tx, ty = self.attack_reposition_target
             x = ix + (tx - ix) * t
-            y = iy + (ty - iy) * t - (self.attack_curve_depth / 2.0 * (1 - (2 * (t - 0.5)) ** 2))
+            y = iy + (ty - iy) * t - (self.attack_curve_depth /2.0 * (1 - (2 * (t - 0.5)) ** 2))
             self.rect.centerx = int(x - camera_x)
             self.rect.centery = int(y - camera_y)
             self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
@@ -343,8 +344,6 @@ class MossMother:
                 self.attack_phase_time = 0.0
                 self.is_attacking = False
                 self.attack_timer = 0.0
-
-
     def _update_reposition(self, dt):
         if not self.is_repositioning:
             return

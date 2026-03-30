@@ -170,13 +170,11 @@ class Silksong:
             # Main ground
             pygame.Rect(-200000, base_y, 400000, 2000),
             # Low platform for ledge climb testing (right of start)
-            pygame.Rect(start_x + 400, base_y - 220, 250, 220),
+            pygame.Rect(start_x + 400, base_y - 220, 250, 10),
             # Wall jump corridor - left wall
-            pygame.Rect(start_x + 800, base_y - 500, 50, 500),
-            # Wall jump corridor - right wall
-            pygame.Rect(start_x + 1000, base_y - 500, 50, 500),
-            # Top platform above wall jump corridor
-            pygame.Rect(start_x + 780, base_y - 530, 290, 30),
+            pygame.Rect(start_x + 750, base_y - 3000, 50, 3000),
+            pygame.Rect(start_x, base_y - 1500, 550, 10),
+            pygame.Rect(start_x - 1200, base_y - 1800, 1200, 10),
         ]
 
         # Keep bench anchored to world ground, not player-specific values.
@@ -782,10 +780,11 @@ class Silksong:
 
                         # Create player when starting game
                         start_x = config.screen_width // 2
-                        self.player = Hornet(start_x, 0, config.screen_width, config.screen_height)
+                        base_y = int(self.world_ground_y)
+                        self.player = Hornet(start_x, base_y, config.screen_width, config.screen_height)
                         self.mossgrub = MossGrub(start_x, 0, config.screen_width, config.screen_height)
                         self.mossmother = MossMother(start_x, 0, config.screen_width, config.screen_height)
-                        self.player.reset_position(start_x, self.world_ground_y)
+                        self.player.reset_position(start_x, base_y)
                         self.player.on_ground = True
                         self._build_ground_colliders()
                         # Mossgrub will be placed after camera is finalized below

@@ -17,7 +17,7 @@ class MossGrub:
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/mossgrub.png")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
-        scale_factor = 0.25
+        scale_factor = 0.45
         scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
         self.image = pygame.transform.scale(self.image, scaled_size)
         self.image_flipped = pygame.transform.flip(self.image, True, False)
@@ -53,6 +53,9 @@ class MossGrub:
         # Health system
         self.max_health = 1000
         self.health = 1000
+
+        # Sub-pixel accumulator for horizontal movement precision.
+        self._frac_x = 0.0
     
     def _load_mossgrub_animation(self):
         """Load mossgrub animations from spritesheet."""
@@ -164,7 +167,10 @@ class MossGrub:
 
         # Combine patrol motion with temporary knockback push.
         horizontal_move = (self.speed * self.facing_right + self.knockback_velocity_x) * dt
-        self.rect.x += horizontal_move
+        self._frac_x += horizontal_move
+        move_px = int(self._frac_x)
+        self._frac_x -= move_px
+        self.rect.x += move_px
 
         # Resolve horizontal collisions against platform side walls.
         if collision_rects:
@@ -173,6 +179,9 @@ class MossGrub:
             world_rect.y += int(camera_y)
 
             for cr in collision_rects:
+                # Skip the giant infinite ground plane – it has no side walls.
+                if cr.width > 5000:
+                    continue
                 if not world_rect.colliderect(cr):
                     continue
                 # Ignore floor contact from above; this is for wall blocking only.

@@ -19,7 +19,7 @@ class Hornet:
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
-        scale_factor = 0.25
+        scale_factor = 0.3
         scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
         self.image = pygame.transform.scale(self.image, scaled_size)
         self.image_flipped = pygame.transform.flip(self.image, True, False)
@@ -135,6 +135,7 @@ class Hornet:
         self.attack_hit_mossgrub = False
         self.attack_hit_mossmother = False
         self.is_down_attacking = False
+        self.down_attack_momentum_active = False
         self.down_attack_rebound_timer = 0.0
         self.down_attack_jump_lock_duration = 0.3
         self.down_attack_jump_lock_timer = 0.0
@@ -251,9 +252,10 @@ class Hornet:
             self._attack_triggered = True
             if keys[pygame.K_w]:
                 self.attack_hitbox_direction = "up"
-            elif keys[pygame.K_s]:
+            elif keys[pygame.K_s] and not self.on_ground:
                 self.attack_hitbox_direction = "down"
                 self.is_down_attacking = True
+                self.down_attack_momentum_active = True
                 # Fast diagonal charge in facing direction + downward
                 direction = 1 if self.facing_right else -1
                 self.knockback_velocity_x = direction * self.down_attack_charge_speed
@@ -587,6 +589,9 @@ class Hornet:
                     self.rect.y = int(world_rect.y - camera_y)
                     self.velocity_y = 0
                     self.on_ground = True
+                    if self.down_attack_momentum_active:
+                        self.knockback_velocity_x = 0.0
+                        self.down_attack_momentum_active = False
                     self._rebound_available = False
                     self.down_attack_rebound_timer = 0.0
                     if self.is_down_attacking:
@@ -736,6 +741,7 @@ class Hornet:
         self.attack_hit_mossgrub = False
         self.attack_hit_mossmother = False
         self.is_down_attacking = False
+        self.down_attack_momentum_active = False
         self.down_attack_rebound_timer = 0.0
         self.down_attack_jump_lock_timer = 0.0
         self.is_climbing_ledge = False
