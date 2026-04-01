@@ -66,10 +66,6 @@ class Silksong:
         title_boulder_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0000_bone_cliff_01.png")
         self.title_boulder = self._load_and_scale_image(title_boulder_path, int(552*config.scale_x), int(236*config.scale_y))
 
-        # Load and scale title element (spike)
-        title_spike_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0001_bone_cliff_02.png")
-        self.title_spike = self._load_and_scale_image(title_spike_path, int(197*config.scale_x), int(142*config.scale_y))
-
         # Load and scale title element (pin)
         #title_pin = pygame.image.load(os.path.join(os.path.dirname(__file__), ""))
         
@@ -120,6 +116,8 @@ class Silksong:
         self.particle_system = ParticleSystem(config.screen_width, config.screen_height)
         ember_image_path = os.path.join(os.path.dirname(__file__), "../assets/images/ember_particle.png")
         self.particle_system.load_ember_image(ember_image_path)
+        ember_round_image_path = os.path.join(os.path.dirname(__file__), "../assets/images/Texture2D/ember_particle_round.png")
+        self.particle_system.load_ember_round_image(ember_round_image_path)
         
         # Create buttons
         self.create_buttons() # Normal buttons
@@ -190,35 +188,59 @@ class Silksong:
                     top_y = ground_rect.top
         return top_y
 
-    def _snap_player_to_ground(self):
-        """Snap Hornet onto the ground/platform at current world X and reset vertical state."""
+    def _get_colliding_ground_top_for_world_rect(self, world_rect):
+        """Return top Y of the floor collider currently intersecting a world-space rect."""
+        colliding_top = None
+        for ground_rect in self.ground_colliders:
+            # Require horizontal overlap.
+            if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
+                continue
+
+            # Clamp only when the entity is within/under a collider's vertical span.
+            if world_rect.bottom < ground_rect.top or world_rect.top > ground_rect.bottom:
+                continue
+
+            # Prefer the deepest colliding top (closest floor under the entity).
+            if colliding_top is None or ground_rect.top > colliding_top:
+                colliding_top = ground_rect.top
+
+        return colliding_top
+
+    def _clamp_player_above_colliding_ground(self):
+        """Clamp Hornet upward only when currently intersecting a ground/platform collider."""
         if not self.player:
             return
 
-        player_world_center_x = int(self.player.rect.centerx + self.camera_x)
-        ground_top = self._get_ground_top_at_world_x(player_world_center_x)
+        player_world_rect = self.player.rect.copy()
+        player_world_rect.x += int(self.camera_x)
+        player_world_rect.y += int(self.camera_y)
+        ground_top = self._get_colliding_ground_top_for_world_rect(player_world_rect)
         if ground_top is None:
-            ground_top = int(self.world_ground_y)
+            return
 
         # Keep player at the anchored screen Y by solving camera_y from desired world bottom.
         self.camera_y = int(ground_top - self.player.rect.bottom)
         self.player.velocity_y = 0
         self.player.on_ground = True
 
-    def _snap_mossgrub_to_ground(self, world_x=None):
-        """Snap MossGrub onto the ground/platform at a world X and reset vertical state."""
+    def _clamp_mossgrub_above_colliding_ground(self, world_x=None):
+        """Clamp MossGrub upward only when currently intersecting a ground/platform collider."""
         if not self.mossgrub:
             return
+        
+        mossgrub_world_rect = self.mossgrub.rect.copy()
+        mossgrub_world_rect.x += int(self.camera_x)
+        mossgrub_world_rect.y += int(self.camera_y)
+        if world_x is not None:
+            mossgrub_world_rect.centerx = int(world_x)
 
-        if world_x is None:
-            world_x = int(self.mossgrub.rect.centerx + self.camera_x)
-
-        ground_top = self._get_ground_top_at_world_x(int(world_x))
+        ground_top = self._get_colliding_ground_top_for_world_rect(mossgrub_world_rect)
         if ground_top is None:
-            ground_top = int(self.world_ground_y)
+            return
 
-        self.mossgrub.rect.centerx = int(world_x - self.camera_x)
-        self.mossgrub.rect.bottom = int(ground_top - self.camera_y)
+        mossgrub_world_rect.bottom = int(ground_top)
+        self.mossgrub.rect.x = int(mossgrub_world_rect.x - self.camera_x)
+        self.mossgrub.rect.y = int(mossgrub_world_rect.y - self.camera_y)
         self.mossgrub.velocity_y = 0
         self.mossgrub.on_ground = True
 
@@ -367,6 +389,7 @@ class Silksong:
                     if not player.attack_hit_mossgrub:
                         knockback_direction = 1 if player_world_rect.centerx < mossgrub_world.centerx else -1
                         self.mossgrub.take_damage(self.attack_damage, knockback_direction=knockback_direction)
+                        player.apply_attack_recoil_on_hit()
                         player.gain_silk(self.silk_per_hit)
                         player.attack_hit_mossgrub = True
                     if player.attack_hitbox_direction == "down":
@@ -380,6 +403,7 @@ class Silksong:
                     if not player.attack_hit_mossmother:
                         knockback_direction = 1 if player_world_rect.centerx < mossmother_world.centerx else -1
                         self.mossmother.take_damage(self.attack_damage, knockback_direction=knockback_direction)
+                        player.apply_attack_recoil_on_hit()
                         player.gain_silk(self.silk_per_hit)
                         player.attack_hit_mossmother = True
                     if player.attack_hitbox_direction == "down":
@@ -420,14 +444,17 @@ class Silksong:
 
     def respawn_player(self):
         """Respawn Hornet at the latest rested bench position."""
-        respawn_x = int(self.player.rect.x)
+        respawn_x = int(self.player.rect.x + self.camera_x)
+        respawn_y = int(self.player.rect.y + self.camera_y)
 
         if isinstance(self.respawn_position, list) and len(self.respawn_position) >= 2:
             respawn_x = int(self.respawn_position[0])
+            respawn_y = int(self.respawn_position[1])
 
-        # Restore world X from respawn, then snap vertically to actual ground.
+        # Restore world-space respawn location first.
         self.camera_x = respawn_x - self.player.rect.x
-        self._snap_player_to_ground()
+        self.camera_y = respawn_y - self.player.rect.y
+        self._clamp_player_above_colliding_ground()
 
         self.player.velocity_x = 0
         self.player.velocity_y = 0
@@ -443,7 +470,7 @@ class Silksong:
     def respawn_mossgrub(self):
         """Respawn MossGrub at the latest rested bench position."""
         self.mossgrub.health = self.mossgrub.max_health
-        self._snap_mossgrub_to_ground()
+        self._clamp_mossgrub_above_colliding_ground()
         if self.mossmother:
             self.mossmother.health = self.mossmother.max_health
             self.mossmother.reset_position(self.mossmother.rect.centerx, self.mossmother.rect.bottom)
@@ -542,7 +569,6 @@ class Silksong:
         self.screen.blit(self.title_needle, (int(1500 * config.scale_x), int(175 * config.scale_y)))
         self.screen.blit(self.title_pin, (int(1300 * config.scale_x), int(475 * config.scale_y)))
         self.screen.blit(self.title_boulder, (int(1050 * config.scale_x), int(850 * config.scale_y)))
-        self.screen.blit(self.title_spike, (int(1050 * config.scale_x), int(850 * config.scale_y)))
 
         # Draw large ember particles (in front of boneforest)
         self.particle_system.draw_particles(self.screen, size_min=5.0)
@@ -779,11 +805,12 @@ class Silksong:
                         self._last_saved_signature = None
 
                         # Create player when starting game
+
                         start_x = config.screen_width // 2
                         base_y = int(self.world_ground_y)
                         self.player = Hornet(start_x, base_y, config.screen_width, config.screen_height)
                         self.mossgrub = MossGrub(start_x, 0, config.screen_width, config.screen_height)
-                        self.mossmother = MossMother(start_x, 0, config.screen_width, config.screen_height)
+                        self.mossmother = MossMother((start_x + 1200), (base_y - 1800) - 200, config.screen_width, config.screen_height)
                         self.player.reset_position(start_x, base_y)
                         self.player.on_ground = True
                         self._build_ground_colliders()
@@ -823,8 +850,8 @@ class Silksong:
                         # Rebuild colliders after loading world position so spawn platform is under Hornet.
                         self._build_ground_colliders()
 
-                        # Force a valid floor spawn to prevent falling into void from stale/corrupt Y saves.
-                        self._snap_player_to_ground()
+                        # Only correct penetration if the loaded position intersects a floor collider.
+                        self._clamp_player_above_colliding_ground()
 
                         # Place mossgrub now that camera is finalized.
                         # Spawn above a platform so gravity behavior is easy to test.
@@ -870,11 +897,12 @@ class Silksong:
                             self.mossgrub.rect.x = saved_mossgrub_world_x - int(self.camera_x)
                             self.mossgrub.rect.y = saved_mossgrub_world_y - int(self.camera_y)
 
-                            ground_top = self._get_ground_top_at_world_x(saved_mossgrub_world_x)
-                            if ground_top is not None:
-                                saved_mossgrub_world_bottom = saved_mossgrub_world_y + self.mossgrub.rect.height
-                                if saved_mossgrub_world_bottom > ground_top + 2:
-                                    self._snap_mossgrub_to_ground(world_x=saved_mossgrub_world_x)
+                            saved_mossgrub_world_rect = self.mossgrub.rect.copy()
+                            saved_mossgrub_world_rect.x += int(self.camera_x)
+                            saved_mossgrub_world_rect.y += int(self.camera_y)
+                            colliding_top = self._get_colliding_ground_top_for_world_rect(saved_mossgrub_world_rect)
+                            if colliding_top is not None and saved_mossgrub_world_rect.bottom > colliding_top + 2:
+                                self._clamp_mossgrub_above_colliding_ground(world_x=saved_mossgrub_world_x)
 
                         saved_mossgrub_health = loaded_state.get("mossgrub_health", self.mossgrub.health)
                         self.mossgrub.health = max(0, min(self.mossgrub.max_health, int(saved_mossgrub_health)))

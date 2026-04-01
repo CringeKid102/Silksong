@@ -22,8 +22,13 @@ class ParticleSystem:
         self.screen_width = screen_width
         self.screen_height = screen_height
         self.ember_image = None
+        self.ember_round_image = None
         self.ember_spawn_timer = 0.0
+        self.ember_round_spawn_timer = 0.0
         self.ember_enabled = False
+        self.ember_base_spawn_interval = 0.05
+        self.max_particles = 1000
+        self.max_cache_entries = 240
         
         # Surface cache for particle rendering
         self._surface_cache = {}
@@ -31,10 +36,42 @@ class ParticleSystem:
     def load_ember_image(self, image_path):
         """Load the ember particle image."""
         self.ember_image = pygame.image.load(image_path).convert_alpha()
+
+    def load_ember_round_image(self, image_path):
+        """Load the round ember particle image."""
+        self.ember_round_image = pygame.image.load(image_path).convert_alpha()
         
     def enable_ember_spawning(self, enabled=True):
         """Enable or disable automatic ember spawning."""
         self.ember_enabled = enabled
+
+    def _trim_surface_cache(self):
+        """Bound cache growth to prevent memory and CPU spikes."""
+        if len(self._surface_cache) > self.max_cache_entries:
+            drop_count = max(1, self.max_cache_entries // 4)
+            for _ in range(drop_count):
+                self._surface_cache.pop(next(iter(self._surface_cache)), None)
+
+    def _get_cached_ember_surface(self, img, size, angle, alpha):
+        """Fetch a cached transformed ember image with quantized buckets."""
+        scale_factor = max(0.2, size / 3.0)
+        scale_bucket = round(scale_factor * 4) / 4.0
+        angle_bucket = int(round(angle / 5.0) * 5)
+        alpha_bucket = max(0, min(255, int(round(alpha / 24.0) * 24)))
+
+        cache_key = (id(img), scale_bucket, angle_bucket, alpha_bucket)
+        cached = self._surface_cache.get(cache_key)
+        if cached is not None:
+            return cached
+
+        w = max(1, int(img.get_width() * scale_bucket))
+        h = max(1, int(img.get_height() * scale_bucket))
+        scaled_img = pygame.transform.smoothscale(img, (w, h))
+        rotated_img = pygame.transform.rotate(scaled_img, angle_bucket)
+        rotated_img.set_alpha(alpha_bucket)
+        self._surface_cache[cache_key] = rotated_img
+        self._trim_surface_cache()
+        return rotated_img
 
     def spawn_sparks(self, x: float, y: float, count: int = 12, color: Tuple[int,int,int]=(255,200,100)):
         """
@@ -105,11 +142,17 @@ class ParticleSystem:
         to_spawn = min(count, available)
         for _ in range(to_spawn):
             life = random.uniform(15.0, 20.0)  # Much longer life to traverse the screen
-            # Velocity moves diagonally from bottom-left to top-right, much faster
-            vx = random.uniform(360, 480)  # Move right much faster
-            vy = random.uniform(-480, -360)  # Move up much faster
             # Size with stronger bias towards smaller (farther) particles
-            initial_size = 1 + 9 * (random.uniform(0, 1) ** 3)
+            initial_size = 9 * (random.uniform(0, 1) ** 3)
+            # Depth factor: larger embers are in front and move faster.
+            depth_t = (initial_size - 1.0) / 9.0  # 0 = far/back, 1 = near/front
+            speed_scale = 0.45 + 1.05 * depth_t
+
+            # Velocity moves diagonally from bottom-left to top-right.
+            base_vx = random.uniform(360, 480)
+            base_vy = random.uniform(-480, -360)
+            vx = base_vx * speed_scale
+            vy = base_vy * speed_scale
             # Random size change behavior
             size_change_rate = random.uniform(-0.5, 0.5)  # Can grow or shrink
             self.particles.append({
@@ -131,7 +174,53 @@ class ParticleSystem:
                 'angle': random.uniform(-20, 20),  # Random rotation angle ±25 degrees
                 'time': 0,  # For sin wave movement
                 'sin_freq': random.uniform(1, 5),  # Frequency for sin wave
-                'sin_amp': random.uniform(2, 8)  # Smaller amplitude for sin wave
+                'sin_amp': (1.5 + 8.5 * depth_t)  # Foreground embers sway more
+            })
+
+    def spawn_round_embers(self, x: float, y: float, count: int = 1, image=None):
+        """
+        Spawn round background ember particles with depth-based velocity and sin sway.
+        No size change over lifetime. Biased toward small sizes to stay in the background.
+        Args:
+            x (float): X position to spawn embers.
+            y (float): Y position to spawn embers.
+            count (int): Number of embers to spawn.
+            image: Pygame surface to use as ember image (falls back to ember_round_image).
+        """
+        img = image or self.ember_round_image
+        MAX = 1000
+        available = max(0, MAX - len(self.particles))
+        to_spawn = min(count, available)
+        for _ in range(to_spawn):
+            life = random.uniform(15.0, 20.0)
+            # Background bias: strong cubic bias keeps most particles small/far.
+            initial_size = 1.0 + 3.0 * (random.uniform(0, 1) ** 3)
+            # Depth factor: 0 = far/back, 1 = near/front.
+            depth_t = (initial_size - 1.0) / 3.0
+            speed_scale = 0.45 + 1.05 * depth_t
+
+            base_vx = random.uniform(360, 480)
+            base_vy = random.uniform(-480, -360)
+            vx = base_vx * speed_scale
+            vy = base_vy * speed_scale
+
+            self.particles.append({
+                'x': x + random.uniform(-self.screen_width, self.screen_width),
+                'y': y + random.uniform(self.screen_height, 0),
+                'vx': vx,
+                'vy': vy,
+                'life': life,
+                'initial_life': life,
+                'size': initial_size,
+                'initial_size': initial_size,
+                'color': None,
+                'gravity': 0,
+                'type': 'ember',
+                'image': img,
+                'angle': random.uniform(-20, 20),
+                'time': 0,
+                'sin_freq': random.uniform(1, 5),
+                'sin_amp': 1.5 + 8.5 * depth_t,
             })
 
     def add_detection_popup(self, delta: int, x: float, y: float):
@@ -207,7 +296,9 @@ class ParticleSystem:
         # Handle automatic ember spawning
         if self.ember_enabled and self.ember_image and self.screen_width and self.screen_height:
             self.ember_spawn_timer += dt
-            if self.ember_spawn_timer >= 0.05:  # Spawn more frequently
+            load_t = min(1.0, len(self.particles) / max(1, self.max_particles))
+            spawn_interval = self.ember_base_spawn_interval + (0.09 * load_t)
+            if self.ember_spawn_timer >= spawn_interval:
                 self.ember_spawn_timer = 0.0
                 # Randomly choose to spawn from bottom edge or left edge
                 if random.choice([True, False]):
@@ -218,7 +309,24 @@ class ParticleSystem:
                     # Spawn from left edge (anywhere along the left side)
                     spawn_x = random.uniform(0, self.screen_width * 0.05)
                     spawn_y = random.uniform(0, self.screen_height)
-                self.spawn_embers(spawn_x, spawn_y, count=random.randint(1, 3), image=self.ember_image)
+                spawn_count = 1 if load_t > 0.6 else random.randint(1, 3)
+                self.spawn_embers(spawn_x, spawn_y, count=spawn_count, image=self.ember_image)
+
+        # Handle automatic round ember spawning
+        if self.ember_enabled and self.ember_round_image and self.screen_width and self.screen_height:
+            self.ember_round_spawn_timer += dt
+            load_t = min(1.0, len(self.particles) / max(1, self.max_particles))
+            spawn_interval = self.ember_base_spawn_interval + (0.11 * load_t)
+            if self.ember_round_spawn_timer >= spawn_interval:
+                self.ember_round_spawn_timer = 0.0
+                if random.choice([True, False]):
+                    spawn_x = random.uniform(0, self.screen_width)
+                    spawn_y = random.uniform(self.screen_height * 0.95, self.screen_height)
+                else:
+                    spawn_x = random.uniform(0, self.screen_width * 0.05)
+                    spawn_y = random.uniform(0, self.screen_height)
+                spawn_count = 1 if load_t > 0.5 else random.randint(1, 2)
+                self.spawn_round_embers(spawn_x, spawn_y, count=spawn_count, image=self.ember_round_image)
 
     def draw_particles(self, surface: pygame.Surface, size_min=None, size_max=None):
         """
@@ -242,24 +350,8 @@ class ParticleSystem:
             if p['type'] == 'ember' and p.get('image'):
                 # Use image for ember particles
                 img = p['image']
-                # Scale image based on particle size
-                scale_factor = p['size'] / 3.0  # Adjust base scale as needed
                 angle = p.get('angle', 0)
-                cache_key = (id(img), round(scale_factor, 2), alpha // 8, int(angle))
-                
-                if cache_key not in self._surface_cache:
-                    scaled_img = pygame.transform.scale(img, (int(img.get_width() * scale_factor), int(img.get_height() * scale_factor)))
-                    # Rotate the image
-                    rotated_img = pygame.transform.rotate(scaled_img, angle)
-                    rotated_img.set_alpha(alpha)
-                    self._surface_cache[cache_key] = rotated_img
-                    # Limit cache size
-                    if len(self._surface_cache) > 100:
-                        # Remove oldest entries (first 20)
-                        for _ in range(20):
-                            self._surface_cache.pop(next(iter(self._surface_cache)))
-                else:
-                    rotated_img = self._surface_cache[cache_key]
+                rotated_img = self._get_cached_ember_surface(img, p['size'], angle, alpha)
                 
                 # Draw centered on particle position
                 surface.blit(rotated_img, (int(p['x']) - rotated_img.get_width()//2, int(p['y']) - rotated_img.get_height()//2))
@@ -272,9 +364,7 @@ class ParticleSystem:
                     col = p['color'] + (alpha,)
                     pygame.draw.circle(s, col, (r, r), r)
                     self._surface_cache[cache_key] = s
-                    if len(self._surface_cache) > 100:
-                        for _ in range(20):
-                            self._surface_cache.pop(next(iter(self._surface_cache)))
+                    self._trim_surface_cache()
                 else:
                     s = self._surface_cache[cache_key]
                 
@@ -289,9 +379,7 @@ class ParticleSystem:
                     sc = p['color'] + (smoke_alpha,)
                     pygame.draw.circle(s, sc, (r, r), r)
                     self._surface_cache[cache_key] = s
-                    if len(self._surface_cache) > 100:
-                        for _ in range(20):
-                            self._surface_cache.pop(next(iter(self._surface_cache)))
+                    self._trim_surface_cache()
                 else:
                     s = self._surface_cache[cache_key]
                 

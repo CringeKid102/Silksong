@@ -45,6 +45,9 @@ class Hornet:
         self.knockback_velocity_x = 0.0
         self.knockback_strength = 520.0
         self.knockback_decay = 1600.0
+        self.attack_recoil_velocity_x = 0.0
+        self.attack_recoil_strength = 320.0
+        self.attack_recoil_decay = 1800.0
 
         # Wall jump / wall slide
         self.touching_wall_left = False
@@ -121,6 +124,7 @@ class Hornet:
         self._dash_timer = 0.0
         self._special_timer = 0.0
         self._attack_triggered = False
+        self._attack_key_down = False
         self._heal_key_down = False
 
         # Dedicated attack hitbox state
@@ -134,6 +138,7 @@ class Hornet:
         self.attack_hitbox_direction = "forward"
         self.attack_hit_mossgrub = False
         self.attack_hit_mossmother = False
+        self.attack_recoil_applied = False
         self.is_down_attacking = False
         self.down_attack_momentum_active = False
         self.down_attack_rebound_timer = 0.0
@@ -161,6 +166,7 @@ class Hornet:
         self._attack_triggered = False
         self._pressing_down = keys[pygame.K_s]
         self.velocity_x = 0
+        attack_pressed = keys[pygame.K_j]
 
         # Heal input (edge-triggered, consume all silk)
         shift_pressed = keys[pygame.K_LSHIFT] or keys[pygame.K_RSHIFT]
@@ -171,7 +177,8 @@ class Hornet:
         if self.is_healing or self.is_resting or self.is_climbing_ledge:
             self.look_direction = 0
             self.look_hold_timer = 0.0
-            self._camera_velocity[0] = self.knockback_velocity_x
+            self._attack_key_down = attack_pressed
+            self._camera_velocity[0] = self.knockback_velocity_x + self.attack_recoil_velocity_x
             self._camera_velocity[1] = 0
             return self._camera_velocity
         
@@ -247,7 +254,8 @@ class Hornet:
         self._jump_held = jump_pressed
 
         # Attack
-        if keys[pygame.K_j] and self._attack_timer <= 0.0:
+        fresh_attack_press = attack_pressed and not self._attack_key_down
+        if fresh_attack_press and self._attack_timer <= 0.0:
             self._attack_timer = self.attack_cooldown
             self._attack_triggered = True
             if keys[pygame.K_w]:
@@ -267,6 +275,7 @@ class Hornet:
                 self.audio_manager.play_sfx("hornet_attack")
             except Exception:
                 pass  # Skip if sound doesn't exist
+        self._attack_key_down = attack_pressed
 
         # Dash
         if keys[pygame.K_k] and self._dash_timer <= 0.0:
@@ -308,7 +317,7 @@ class Hornet:
             self.look_hold_timer = 0.0
         
         # Return camera movement (reuse cached list)
-        self._camera_velocity[0] = self.velocity_x + self.knockback_velocity_x
+        self._camera_velocity[0] = self.velocity_x + self.knockback_velocity_x + self.attack_recoil_velocity_x
         self._camera_velocity[1] = 0
         return self._camera_velocity
 
@@ -353,6 +362,7 @@ class Hornet:
         world_rect.x += int(camera_x)
         world_rect.y += int(camera_y)
         self.attack_hitbox_facing_right = self.facing_right
+        self.attack_recoil_applied = False
         self.attack_hitbox = self._build_attack_hitbox(world_rect)
         self.attack_hit_mossgrub = False
         self.attack_hit_mossmother = False
@@ -361,6 +371,14 @@ class Hornet:
         else:
             self.attack_hitbox_timer = self.attack_hitbox_duration
         return self.attack_hitbox.copy()
+
+    def apply_attack_recoil_on_hit(self):
+        """Apply attack recoil once per swing after a confirmed enemy hit."""
+        if self.attack_recoil_applied:
+            return
+        facing_direction = 1 if self.attack_hitbox_facing_right else -1
+        self.attack_recoil_velocity_x = -facing_direction * self.attack_recoil_strength
+        self.attack_recoil_applied = True
 
     def gain_silk(self, amount):
         """Gain silk up to max_silk."""
@@ -472,6 +490,11 @@ class Hornet:
             self.knockback_velocity_x = max(0.0, self.knockback_velocity_x - self.knockback_decay * dt)
         elif self.knockback_velocity_x < 0.0:
             self.knockback_velocity_x = min(0.0, self.knockback_velocity_x + self.knockback_decay * dt)
+
+        if self.attack_recoil_velocity_x > 0.0:
+            self.attack_recoil_velocity_x = max(0.0, self.attack_recoil_velocity_x - self.attack_recoil_decay * dt)
+        elif self.attack_recoil_velocity_x < 0.0:
+            self.attack_recoil_velocity_x = min(0.0, self.attack_recoil_velocity_x + self.attack_recoil_decay * dt)
 
         if self._attack_timer > 0.0:
             self._attack_timer = max(0.0, self._attack_timer - dt)
@@ -740,6 +763,7 @@ class Hornet:
         self.attack_hitbox_direction = "forward"
         self.attack_hit_mossgrub = False
         self.attack_hit_mossmother = False
+        self.attack_recoil_applied = False
         self.is_down_attacking = False
         self.down_attack_momentum_active = False
         self.down_attack_rebound_timer = 0.0

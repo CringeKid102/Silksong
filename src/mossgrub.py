@@ -26,8 +26,9 @@ class MossGrub:
         self.rect.y = y
         self.rect.midbottom = (x, y)
 
+        # Knockback
         self.knockback_velocity_x = 0.0
-        self.knockback_strength = 520.0
+        self.knockback_strength = 560.0
         self.knockback_decay = 1600.0
         
         # Movement attributes

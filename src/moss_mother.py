@@ -2,6 +2,7 @@ import pygame
 import os
 import math
 from audio import AudioManager
+import config
 
 
 class MossMother:
@@ -42,15 +43,19 @@ class MossMother:
         self.is_attacking = False
         self.attack_elapsed = 0.0
         self.attack_duration = 0.85
-        self.attack_start = (0.0, 0.0)
+        
+        start_x = config.screen_width // 2
+        self.world_ground_y = int(config.screen_height * 0.62)
+        base_y = int(self.world_ground_y)
+        self.attack_start = (start_x - 1200, (base_y - 1800) - 200)
+        #self.attack_end = (start_x, (base_y - 1800) - 200)
+        
         self.attack_target = (0.0, 0.0)
         self.attack_curve_depth = 200.0
-
         self.attack_burst_count = 0
         self.attack_burst_max = 3
         self.attack_long_cooldown = 30.0
         self.attack_long_cooldown_timer = 0.0
-
         self.attack_contact_registered = False
         self.phase_through = False
         self.attack_approach_side = 1
@@ -63,7 +68,7 @@ class MossMother:
         self.attack_ascent_duration = 0.25
         self.attack_mid = (0.0, 0.0)
         self.attack_impact_end = (0.0, 0.0)
-        self.attack_reposition_target = (0.0, 0.0)
+        self.attack_reposition_target = (start_x, (base_y - 1800) - 200)
 
         # Reposition after each attack
         self.is_repositioning = False
@@ -82,9 +87,9 @@ class MossMother:
         self.stagger_recovery_time = 0.6
         self.stagger_recovery_timer = 0.0
 
-        # Knockback (same behavior as MossGrub/Hornet)
+        # Knockback
         self.knockback_velocity_x = 0.0
-        self.knockback_strength = 520.0
+        self.knockback_strength = 560.0
         self.knockback_decay = 1600.0
 
         # Constant for pathfinding
@@ -236,7 +241,6 @@ class MossMother:
         self.attack_phase_time = 0.0
         self.attack_contact_registered = False
 
-        self.attack_start = self._world_position(camera_x=camera_x, camera_y=camera_y)
         player_x = player_world_rect.centerx
         player_y = player_world_rect.centery
 
@@ -256,7 +260,7 @@ class MossMother:
         self.attack_impact_end = (target_x, self.attack_start[1])
 
         # Ascend path, just above the opponent side for next attack
-        self.attack_reposition_target = (target_x, player_y - 220)
+        #self.attack_reposition_target = (target_x, player_y - 220)
 
         self.attack_burst_count += 1
         if self.attack_burst_count >= self.attack_burst_max:
@@ -285,15 +289,37 @@ class MossMother:
         self.attack_contact_registered = False
 
     def _update_curve_attack(self, dt, player_world_rect=None, camera_x=0, camera_y=0, collision_rects=None):
+        
+        '''
+        base_y = int(self.world_ground_y)
+        start_x = config.screen_width // 2
+        self.ground_colliders = [
+            # Main ground
+            pygame.Rect(-200000, base_y, 400000, 2000),
+            # Low platform for ledge climb testing (right of start)
+            pygame.Rect(start_x + 400, base_y - 220, 250, 10),
+            # Wall jump corridor - left wall
+            pygame.Rect(start_x + 750, base_y - 3000, 50, 3000),
+            pygame.Rect(start_x, base_y - 1500, 550, 10),
+            pygame.Rect(start_x - 1200, base_y - 1800, 1200, 10),
+        ]
+        '''
+        
+
+        
         self.attack_phase_time += dt
 
         if self.attack_step == 0:
             # Dive from start to mid.
             t = min(1.0, self.attack_phase_time / self.attack_dive_duration)
-            sx, sy = self.attack_start
-            mx, my = self.attack_mid
+
+
+            sx, sy = self.attack_start #make this a constant
+            mx, my = self.attack_mid #make this a constant
             x = sx + (mx - sx) * t
             y = sy + (my - sy) * t + (self.attack_curve_depth * (t ** 2) * (1 - t))
+            
+            
             self.rect.centerx = int(x - camera_x)
             self.rect.centery = int(y - camera_y)
             self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
@@ -344,6 +370,8 @@ class MossMother:
                 self.attack_phase_time = 0.0
                 self.is_attacking = False
                 self.attack_timer = 0.0
+            
+
     def _update_reposition(self, dt):
         if not self.is_repositioning:
             return
