@@ -5,16 +5,10 @@ from animation import Animation
 from bench import Bench
 
 class Hornet:
-    """Player character class with movement and jumping."""
+    """Player character with movement, combat, and platforming."""
     
     def __init__(self, x, y, screen_width, screen_height):
-        """Initialize Hornet player character.
-        Args:
-            x (float): Initial x position (sprite bottom-center X)
-            y (float): Initial y position (sprite bottom-center Y)
-            screen_width (int): Width of the game screen
-            screen_height (int): Height of the game screen
-        """
+        """Create Hornet at the given position on a screen of the given size."""
         # Load and scale player image
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
@@ -92,6 +86,9 @@ class Hornet:
         self.is_resting = False
         self.rest_timer = 0.0
         self.rest_duration = 0.45
+
+        # Crowd control
+        self.stun_timer = 0.0
         
         # Camera velocity cache to avoid tuple creation each frame
         self._camera_velocity = [0, 0]
@@ -150,18 +147,11 @@ class Hornet:
         self.respawn_y = y
     
     def _load_hornet_animation(self):
-        """Load Hornet animations from spritesheet."""
-        # Placeholder for future animation loading
+        """Load Hornet animations from spritesheet. Placeholder for future use."""
         pass
     
     def handle_input(self, keys, dt=0.016):
-        """Handle keyboard input for movement.
-        Args:
-            keys: pygame key state dictionary
-            dt: delta time in seconds
-        Returns:
-            tuple: (velocity_x, velocity_y) for camera movement
-        """
+        """Handle keyboard input for movement and return camera velocity."""
         # Horizontal movement (returns velocity for camera)
         self._attack_triggered = False
         self._pressing_down = keys[pygame.K_s]
@@ -174,9 +164,10 @@ class Hornet:
             self.start_heal_channel()
         self._heal_key_down = shift_pressed
 
-        if self.is_healing or self.is_resting or self.is_climbing_ledge:
+        if self.is_healing or self.is_resting or self.is_climbing_ledge or self.stun_timer > 0.0:
             self.look_direction = 0
             self.look_hold_timer = 0.0
+            self.velocity_x = 0
             self._attack_key_down = attack_pressed
             self._camera_velocity[0] = self.knockback_velocity_x + self.attack_recoil_velocity_x
             self._camera_velocity[1] = 0
@@ -322,13 +313,13 @@ class Hornet:
         return self._camera_velocity
 
     def consume_attack_trigger(self):
-        """Return whether attack was pressed this frame, then clear the flag."""
+        """Return True if attack was triggered this frame, then reset."""
         attack_pressed = self._attack_triggered
         self._attack_triggered = False
         return attack_pressed
 
     def _build_attack_hitbox(self, world_rect):
-        """Build attack hitbox from the current world-space Hornet rect."""
+        """Build an attack hitbox based on direction and world-space position."""
         base_height = max(10, world_rect.height - self.attack_height_padding * 2)
 
         if self.attack_hitbox_direction == "up":
@@ -357,7 +348,7 @@ class Hornet:
         return pygame.Rect(int(hitbox_left), int(hitbox_top), int(self.attack_range), int(base_height))
 
     def start_attack_hitbox(self, camera_x=0, camera_y=0):
-        """Create and activate Hornet's attack hitbox in world coordinates."""
+        """Activate the attack hitbox in world coordinates."""
         world_rect = self.rect.copy()
         world_rect.x += int(camera_x)
         world_rect.y += int(camera_y)
@@ -373,7 +364,7 @@ class Hornet:
         return self.attack_hitbox.copy()
 
     def apply_attack_recoil_on_hit(self):
-        """Apply attack recoil once per swing after a confirmed enemy hit."""
+        """Apply recoil knockback once per swing when hitting an enemy."""
         if self.attack_recoil_applied:
             return
         facing_direction = 1 if self.attack_hitbox_facing_right else -1
@@ -381,13 +372,13 @@ class Hornet:
         self.attack_recoil_applied = True
 
     def gain_silk(self, amount):
-        """Gain silk up to max_silk."""
+        """Add silk, clamped to the maximum."""
         if amount <= 0:
             return
         self.silk = min(self.max_silk, self.silk + amount)
 
     def start_heal_channel(self):
-        """Start 2-second healing channel and consume all silk immediately."""
+        """Begin the heal channel, consuming all silk upfront."""
         if self.is_healing:
             return False
         if self.silk <= 0:
@@ -401,22 +392,36 @@ class Hornet:
         return True
 
     def cancel_heal_channel(self):
-        """Cancel active heal channel."""
+        """Cancel the current heal channel if active."""
         self.is_healing = False
         self.heal_channel_timer = 0.0
 
     def start_rest(self):
-        """Start a short bench rest and fully heal."""
+        """Sit on a bench, fully heal, and pause movement."""
         self.cancel_heal_channel()
         self.is_resting = True
         self.rest_timer = self.rest_duration
         self.health = self.max_health
         self.velocity_x = 0
         self.velocity_y = 0
-    
+
+    def start_stun(self, duration=2.0):
+        """Temporarily prevent Hornet from moving or attacking."""
+        if duration <= 0:
+            return
+        self.cancel_heal_channel()
+        self.is_resting = False
+        self.rest_timer = 0.0
+        self.is_climbing_ledge = False
+        self.ledge_climb_timer = 0.0
+        self.stun_timer = max(self.stun_timer, duration)
+        self.velocity_x = 0
+        self.velocity_y = max(0, self.velocity_y)
+        self.look_direction = 0
+        self.look_hold_timer = 0.0
+
     def heal(self):
-        """Apply healing immediately."""
-        # Silk is consumed when channel starts, so completion should only check HP.
+        """Restore health when the heal channel completes."""
         if self.health < self.max_health:
             self.health = min(self.health + self.heal_amount, self.max_health)
             try:
@@ -425,20 +430,11 @@ class Hornet:
                 pass  # Skip if sound doesn't exist
             
     def draw_silk_bar(self):
-        """
-        Displays amount of silk player has available for healing. 
-        Args: 
-            
-        """
-        silk_bar = os.path.join(os.path.dirname(__file__), "../assets/images/palceholder")
+        """Draw the silk resource bar on screen. Placeholder for future use."""
+        pass
 
     def take_damage(self, damage, knockback_direction=0):
-        """
-        Apply damage to the player.
-        Args:
-            damage (int): Amount of damage to take
-            knockback_direction (int): Horizontal knockback direction (-1 or 1)
-        """
+        """Apply damage and knockback to the player."""
         if damage <= 0:
             return
         if self.is_healing:
@@ -457,11 +453,7 @@ class Hornet:
             self.knockback_velocity_x = self.knockback_strength
 
     def rebound_from_down_attack(self, enemy_rect=None, camera_y=0):
-        """Launch Hornet upward after a successful downward strike.
-
-        The rebound uses the same variable-height jump: hold SPACE to
-        rise higher, release early for a short bounce.
-        """
+        """Bounce Hornet upward after a successful down-attack hit."""
         if self.attack_hitbox_direction != "down" or self.on_ground:
             return False
 
@@ -481,11 +473,8 @@ class Hornet:
         self.down_attack_rebound_timer = max(self.down_attack_rebound_timer, self.attack_hitbox_timer)
         return True
     
-    def update(self, dt, collision_rects=None, camera_x=0, camera_y=0):
-        """Update player position and physics.
-        Args:
-            dt (float): Delta time in seconds
-        """
+    def update(self, dt, collision_rects=None, camera_x=0, camera_y=0, move_horizontally=False):
+        """Update player physics, collisions, and timers."""
         if self.knockback_velocity_x > 0.0:
             self.knockback_velocity_x = max(0.0, self.knockback_velocity_x - self.knockback_decay * dt)
         elif self.knockback_velocity_x < 0.0:
@@ -508,6 +497,8 @@ class Hornet:
             self.down_attack_rebound_timer = max(0.0, self.down_attack_rebound_timer - dt)
         if self.down_attack_jump_lock_timer > 0.0:
             self.down_attack_jump_lock_timer = max(0.0, self.down_attack_jump_lock_timer - dt)
+        if self.stun_timer > 0.0:
+            self.stun_timer = max(0.0, self.stun_timer - dt)
 
         if self.is_resting:
             self.rest_timer = max(0.0, self.rest_timer - dt)
@@ -573,6 +564,10 @@ class Hornet:
             # This prevents jump-hold from creating upward wall-glide.
             if not self.on_ground and (self.touching_wall_left or self.touching_wall_right) and self._wall_jump_timer <= 0.0 and self.down_attack_rebound_timer <= 0.0:
                 self.velocity_y = self.wall_slide_speed
+
+            if move_horizontally:
+                horizontal_velocity = self.velocity_x + self.knockback_velocity_x + self.attack_recoil_velocity_x
+                self.rect.x += horizontal_velocity * dt
 
             self.rect.y += self.velocity_y * dt
 
@@ -722,41 +717,39 @@ class Hornet:
             except Exception:
                 pass  # Skip if sound doesn't exist
     
-    def draw(self, screen, look_y_offset=0):
-        """Draw the player character.
-        Args:
-            screen: pygame display surface
-            look_y_offset (float): Vertical offset for camera look panning
-        """
-        # Calculate draw position with look offset
+    def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
+        """Draw Hornet on screen with the given vertical look offset."""
         draw_rect = self.rect.copy()
-        draw_rect.y += look_y_offset
+        draw_rect.x += int(screen_offset[0])
+        draw_rect.y += int(look_y_offset + screen_offset[1])
         
-        # Flip image based on facing direction
         if self.facing_right:
             screen.blit(self.image_flipped, draw_rect)
         else:
-            screen.blit(self.image, draw_rect)
-
-        # Draw UI
-        healthbar = os.path.join(os.path.dirname(__file__), "../assets/images/healthbar.webp")
-
-        # Simple heal-channel visual effect
-        if self.is_healing:
-            center = draw_rect.center      
+            screen.blit(self.image, draw_rect)      
     
     def reset_position(self, x, y):
-        """Reset player to a specific position.
-        Args:
-            x (float): New x position (sprite bottom-center X)
-            y (float): New y position (sprite bottom-center Y)
-        """
+        """Reset Hornet to the given position and clear all movement/combat state."""
         self.rect.midbottom = (x, y)
         self.velocity_x = 0
         self.velocity_y = 0
+        self.knockback_velocity_x = 0.0
+        self.attack_recoil_velocity_x = 0.0
         self.on_ground = False
         self.is_resting = False
         self.rest_timer = 0.0
+        self.is_healing = False
+        self.heal_channel_timer = 0.0
+        self.stun_timer = 0.0
+        self._jump_hold_timer = 0.0
+        self._jump_held = False
+        self._jumping = False
+        self._rebound_available = False
+        self._wall_jump_timer = 0.0
+        self._pressing_down = False
+        self.look_hold_timer = 0.0
+        self.camera_look_y = 0.0
+        self.look_direction = 0
         self.attack_hitbox = None
         self.attack_hitbox_timer = 0.0
         self.attack_hitbox_facing_right = self.facing_right
@@ -768,6 +761,12 @@ class Hornet:
         self.down_attack_momentum_active = False
         self.down_attack_rebound_timer = 0.0
         self.down_attack_jump_lock_timer = 0.0
+        self._attack_timer = 0.0
+        self._dash_timer = 0.0
+        self._special_timer = 0.0
+        self._attack_triggered = False
+        self._attack_key_down = False
+        self._heal_key_down = False
         self.is_climbing_ledge = False
         self.ledge_climb_timer = 0.0
         self.touching_wall_left = False

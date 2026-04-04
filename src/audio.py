@@ -8,13 +8,13 @@ class AudioManager:
     _initialized = False
     
     def __new__(cls):
-        """Singleton pattern to ensure only one AudioManager instance exists."""
+        """Singleton pattern so only one AudioManager ever exists."""
         if cls._instance is None:
             cls._instance = super(AudioManager, cls).__new__(cls)
         return cls._instance
     
     def __init__(self):
-        """Initialize the audio manager."""
+        """Set up the mixer, channels, and load saved volume settings."""
         # Only initialize once
         if AudioManager._initialized:
             return
@@ -43,7 +43,7 @@ class AudioManager:
         self.load_settings()
     
     def load_settings(self):
-        """Load audio settings from game progress file."""
+        """Load volume settings from the game progress file."""
         try:
             if os.path.exists(self.settings_file):
                 with open(self.settings_file, 'r') as f:
@@ -56,7 +56,7 @@ class AudioManager:
             print(f"Error loading audio settings: {e}")
         
     def save_settings(self):
-        """Save audio settings to game progress file."""
+        """Persist volume settings to the game progress file."""
         try:
             # Load existing data if file exists
             existing_data = {}
@@ -80,7 +80,7 @@ class AudioManager:
             print(f"Error saving audio settings: {e}")
 
     def load_sounds(self, sounds):
-        """Load sound effects from the audio directory."""
+        """Load sound effects from the sfx directory by name."""
         sfx_dir = os.path.join(self.audio_dir, "sfx")
         try:
             os.makedirs(sfx_dir, exist_ok=True)
@@ -108,7 +108,7 @@ class AudioManager:
                 print(f"Warning: Sound file '{sound_file}' not found in {sfx_dir}")
 
     def play_sfx(self, sound_name, volume_override=None):
-        """Play a sound effect"""
+        """Play a loaded sound effect on the next available channel."""
         if not self._audio_available:
             return
         if sound_name not in self.sfx_sounds:
@@ -129,7 +129,7 @@ class AudioManager:
         channel.play(self.sfx_sounds[sound_name])
     
     def play_music(self, music_name, loop=True, fade_in=0):
-        """Play background music."""
+        """Play background music from the music directory."""
         if not self._audio_available:
             return
         music_dir = os.path.join(self.audio_dir, "music")
@@ -163,7 +163,7 @@ class AudioManager:
             print(f"Warning: Music file '{music_name}' not found in {music_dir}")
     
     def stop_music(self, fade_out: float = 0):
-        """Stop background music."""
+        """Stop background music, optionally with a fade out."""
         if not self._audio_available:
             return
         if fade_out > 0:
@@ -191,7 +191,7 @@ class AudioManager:
         self.save_settings()
 
     def _refresh_sfx_channel_volumes(self):
-        """Apply current master/sfx volume to all mixer channels."""
+        """Apply current master and sfx volume to all mixer channels."""
         channel_volume = self.sfx_volume * self.master_volume
         for channel in self.sfx_channels:
             channel.set_volume(channel_volume)

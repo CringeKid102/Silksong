@@ -12,16 +12,7 @@ class Animation:
             margin: int = 0,
             spacing: int = 0
         ):
-        """
-        Initialize the animation handler with a spritesheet.
-        Args:
-            sprite_sheet_path (str): Path to the spritesheet image
-            frame_width (int): Width of each frame in pixels
-            frame_height (int): Height of each frame in pixels
-            scale (float): Scale factor for the sprites (default: 1.0)
-            margin (int): Pixel margin around the sheet (default: 0)
-            spacing (int): Pixel spacing between frames (default: 0)
-        """
+        """Initialize the animation handler with a spritesheet."""
         if not os.path.exists(sprite_sheet_path):
             raise FileNotFoundError(f"Sprite sheet not found: {sprite_sheet_path}")
         self.sprite_sheet = pygame.image.load(sprite_sheet_path).convert_alpha()
@@ -46,15 +37,7 @@ class Animation:
         self._frame_cache: Dict[Tuple[int, int, bool, float], pygame.Surface] = {}
 
     def _extract_frame_surface(self, col: int, row: int, flip_x: bool) -> pygame.Surface:
-        """
-        Extract a single frame surface from the spritesheet.
-        Args:
-            col (int): Column number (0-based index)
-            row (int): Row number (0-based index)
-            flip_x (bool): Whether to flip the frame horizontally
-        Returns:
-            pygame.Surface: The extracted frame surface
-        """
+        """Extract and cache a single frame surface from the spritesheet."""
         key = (col, row, flip_x, self.scale)
         if key in self._frame_cache:
             return self._frame_cache[key]
@@ -84,16 +67,7 @@ class Animation:
         return frame_surf
 
     def extract_frames(self, row: int, start_col: int, num_frames: int, flip_x: bool = False) -> List[pygame.Surface]:
-        """
-        Extract frames from a specific row in the spritesheet.
-        Args:
-            row (int): Row number (0-based index)
-            start_col (int): Starting column number (0-based index)
-            num_frames (int): Number of frames to extract
-            flip_x (bool): Whether to flip frames horizontally
-        Returns:
-            list: List of pygame.Surface objects representing the frames
-        """
+        """Extract a sequence of frames from a row in the spritesheet."""
         frames: List[pygame.Surface] = []
         for i in range(num_frames):
             col = start_col + i
@@ -114,20 +88,7 @@ class Animation:
             loop: bool = True,
             pingpong: bool = False
         ):
-        """
-        Add an animation to the animation dictionary.
-        Args:
-            name (str): Name of the animation (e.g., "walk", "attack")
-            frames (list): List of frames for the animation
-            row (int): Row number in the spritesheet to extract frames from
-            start_col (int): Starting column number in the spritesheet
-            num_frames (int): Number of frames to extract from the spritesheet
-            flip_x (bool): Whether to flip frames horizontally
-            speed (float): default seconds per frame (used if durations is None)
-            durations (list): Optional list of durations for each frame
-            loop (bool): Whether the animation should loop
-            pingpong (bool): Whether the animation should pingpong
-        """
+        """Register a named animation from frames or spritesheet coordinates."""
         if frames is None:
             if row is None or num_frames <= 0:
                 raise ValueError("Either frames must be provided or row and num_frames must be specified.")
@@ -148,13 +109,7 @@ class Animation:
         }
         
     def set_animation(self, name: str, reset: bool = True, reverse: bool = False):
-        """
-        Set the current animation if it's different from the current one.
-        Args:
-            name (str): Name of the animation to set
-            reset (bool): Whether to reset to the first frame
-            reverse (bool): Whether to play the animation in reverse
-        """
+        """Switch to a named animation, optionally resetting playback."""
         if name not in self.animations:
             raise KeyError(f"Animation not found: {name}")
         if name != self.current_animation or reset:
@@ -167,11 +122,7 @@ class Animation:
             self.pingpong = self.animations[name].get('pingpong', False)
 
     def update(self, dt: float):
-        """
-        Advance animation by dt seconds. Call from your main loop with delta-time.
-        Args:
-            dt (float): Delta time since last update.
-        """
+        """Advance animation playback by dt seconds."""
         if not self.playing or self.current_animation is None or self.finished:
             return
 
@@ -227,9 +178,7 @@ class Animation:
             break
 
     def get_current_frame(self) -> Optional[pygame.Surface]:
-        """
-        Return the current frame surface (or None if no animation set).
-        """
+        """Return the current frame surface, or None if no animation is set."""
         if self.current_animation is None:
             return None
         anim = self.animations[self.current_animation]
@@ -239,14 +188,7 @@ class Animation:
         return anim['frames'][idx]
     
     def draw(self, surface: pygame.Surface, x: int, y: int, anchor: str = 'topleft'):
-        """
-        Draw the current frame at the specified position on the given surface.
-        Args:
-            surface (pygame.Surface): Surface to draw on
-            x (int): X coordinate
-            y (int): Y coordinate
-            anchor (str): Anchor point for positioning ('topleft', 'center', etc.)
-        """
+        """Draw the current frame at the given position on the surface."""
         frame = self.get_current_frame()
         if frame is None:
             return
@@ -259,39 +201,27 @@ class Animation:
         surface.blit(frame, rect)
     
     def pause(self):
-        """
-        Pause the current animation.
-        """
+        """Pause the current animation."""
         self.playing = False
     
     def resume(self):
-        """
-        Resume the current animation.
-        """
+        """Resume the current animation."""
         if not self.finished:
             self.playing = True
     
     def reset(self):
-        """
-        Reset the current animation to the first frame.
-        """
+        """Reset the current animation to the first frame."""
         self.current_frame = 0
         self.elapsed = 0.0
         self.finished = False
         self.playing = True
     
     def is_finished(self) -> bool:
-        """
-        Return True if the current animation has finished playing (non-looping).
-        """
+        """Return True if the current non-looping animation has finished."""
         return self.finished
 
     def set_scale(self, scale: float):
-        """
-        Set a new scale for the animation frames.
-        Args:
-            scale (float): New scale factor
-        """
+        """Set a new scale factor, clearing the frame cache."""
         if scale <= 0:
             raise ValueError("Scale must be a positive number.")
         if scale != self.scale:

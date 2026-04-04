@@ -26,7 +26,7 @@ class Silksong:
     
     @classmethod
     def _load_and_scale_image(cls, path, width, height):
-        """Load and scale an image with caching."""
+        """Load and scale an image, using cache to avoid reloading."""
         cache_key = (path, width, height)
         if cache_key not in cls._image_cache:
             img = pygame.image.load(path)
@@ -38,7 +38,7 @@ class Silksong:
         return cls._image_cache[cache_key]
 
     def __init__(self):
-        """Initialize the game."""
+        """Set up the game window, assets, and subsystems."""
         # Create fullscreen display at actual screen size
         self.screen = pygame.display.set_mode((config.screen_width, config.screen_height), pygame.FULLSCREEN)
         
@@ -91,8 +91,7 @@ class Silksong:
         # Initialize audio manager
         self.audio_manager = AudioManager()
         
-        # Initialize save file system
-        self.save_file = SaveFile()
+        # Save file state
         self.current_slot = 1
         self.game_state = None
         
@@ -109,7 +108,7 @@ class Silksong:
         self.settings_menu.transition_manager = self.transition_manager  # Link transition manager to settings
         self.settings_menu.load_progress()
 
-        # Create save file menu
+        # Create save file manager
         self.save_file = SaveFile()
         
         # Initialize particle system for title screen effects
@@ -138,8 +137,19 @@ class Silksong:
         # Camera system
         self.camera_x = 0
         self.camera_y = 0
+        self.player_camera_anchor_x = None
         self.player_camera_anchor_y = None
         self.mouse_locked = False
+        self.boss_arena_rect = None
+        self.boss_arena_camera = None
+        self.camera_locked_to_arena = False
+        self.arena_camera_lerp_speed = 6.0
+        self.camera_shake_timer = 0.0
+        self.camera_shake_duration = 0.0
+        self.camera_shake_intensity = 0.0
+        self.camera_shake_offset = (0, 0)
+        self.falling_rocks = []
+        self.rock_fall_gravity = 1800.0
 
         # Cache last saved state so we can save only when something changes
         self._last_saved_signature = None
@@ -154,16 +164,37 @@ class Silksong:
         self._bench_interact_key_down = False
         self.respawn_position = None
         self.ground_colliders = []
+        self.mossgrub_patrol_left = None
+        self.mossgrub_patrol_right = None
         self.world_ground_y = int(config.screen_height * 0.62)
 
     def _build_ground_colliders(self):
-        """Build world-space ground and platform colliders."""
+        """Build world-space ground and platform colliders for the level."""
         if not self.player:
             self.ground_colliders = []
+            self.boss_arena_rect = None
+            self.boss_arena_camera = None
+            self.mossgrub_patrol_left = None
+            self.mossgrub_patrol_right = None
             return
 
         base_y = int(self.world_ground_y)
         start_x = config.screen_width // 2
+
+        # Boss arena sized to exactly one camera view.
+        arena_width = int(config.screen_width - 160)
+        arena_height = int(config.screen_height - 80)
+        arena_floor_y = base_y - 1800
+        arena_ceiling_y = arena_floor_y - arena_height
+        arena_left = start_x - arena_width
+        arena_right = start_x
+        wall_thickness = 10
+        self.boss_arena_rect = pygame.Rect(arena_left, arena_ceiling_y, arena_width, arena_height)
+        self.boss_arena_camera = (
+            int(self.boss_arena_rect.centerx - (config.screen_width / 2)),
+            int(self.boss_arena_rect.centery - (config.screen_height / 2)),
+        )
+
         self.ground_colliders = [
             # Main ground
             pygame.Rect(-200000, base_y, 400000, 2000),
@@ -172,26 +203,80 @@ class Silksong:
             # Wall jump corridor - left wall
             pygame.Rect(start_x + 750, base_y - 3000, 50, 3000),
             pygame.Rect(start_x, base_y - 1500, 550, 10),
-            pygame.Rect(start_x - 1200, base_y - 1800, 1200, 10),
+            # Boss arena: one full screen wide by one full screen tall
+            pygame.Rect(arena_left, arena_floor_y, arena_width, wall_thickness),
+            pygame.Rect(arena_left, arena_ceiling_y, arena_width, wall_thickness),
+            pygame.Rect(arena_left, arena_ceiling_y, wall_thickness, arena_height),
+            pygame.Rect(arena_right, arena_ceiling_y, wall_thickness, arena_height - 200),
         ]
 
         # Keep bench anchored to world ground, not player-specific values.
         if self.player:
             self.player.bench.rect.midbottom = (self.screen.get_width() // 2, base_y)
 
+    def _sync_camera_lock_to_boss_arena(self, player_world_rect, dt):
+        """Lock the camera to the arena center while Hornet is inside the boss room."""
+        if not self.player or not self.boss_arena_rect or not self.boss_arena_camera:
+            self.camera_locked_to_arena = False
+            return
+
+        should_lock = self.boss_arena_rect.colliderect(player_world_rect)
+        blend = min(1.0, self.arena_camera_lerp_speed * dt)
+
+        if should_lock:
+            target_camera_x, target_camera_y = self.boss_arena_camera
+        elif self.camera_locked_to_arena:
+            anchor_x = self.player_camera_anchor_x if self.player_camera_anchor_x is not None else int(self.player.rect.x)
+            anchor_y = self.player_camera_anchor_y if self.player_camera_anchor_y is not None else int(self.player.rect.y)
+            target_camera_x = int(player_world_rect.x - anchor_x)
+            target_camera_y = int(player_world_rect.y - anchor_y)
+        else:
+            self.camera_locked_to_arena = False
+            return
+
+        self.camera_x += (target_camera_x - self.camera_x) * blend
+        self.camera_y += (target_camera_y - self.camera_y) * blend
+
+        if abs(target_camera_x - self.camera_x) < 0.5:
+            self.camera_x = float(target_camera_x)
+        if abs(target_camera_y - self.camera_y) < 0.5:
+            self.camera_y = float(target_camera_y)
+
+        self.player.rect.x = int(player_world_rect.x - self.camera_x)
+        self.player.rect.y = int(player_world_rect.y - self.camera_y)
+
+        if should_lock:
+            self.camera_locked_to_arena = True
+            return
+
+        # As soon as Hornet leaves the arena, restore the normal follow camera
+        # immediately so the camera tracks her exact movement again.
+        self._reset_player_camera_follow(
+            world_x=int(player_world_rect.x),
+            world_y=int(player_world_rect.y),
+        )
+
+    def _is_floor_collider(self, collider_rect):
+        """Return True for horizontal ground/platform colliders and False for vertical walls."""
+        return collider_rect.width >= collider_rect.height
+
     def _get_ground_top_at_world_x(self, world_x):
-        """Return top Y of the highest ground collider under a world X."""
+        """Return the top Y of the highest floor collider under the given world X."""
         top_y = None
         for ground_rect in self.ground_colliders:
+            if not self._is_floor_collider(ground_rect):
+                continue
             if ground_rect.left <= world_x < ground_rect.right:
                 if top_y is None or ground_rect.top < top_y:
                     top_y = ground_rect.top
         return top_y
 
     def _get_colliding_ground_top_for_world_rect(self, world_rect):
-        """Return top Y of the floor collider currently intersecting a world-space rect."""
+        """Return the top Y of the floor collider intersecting the given world-space rect."""
         colliding_top = None
         for ground_rect in self.ground_colliders:
+            if not self._is_floor_collider(ground_rect):
+                continue
             # Require horizontal overlap.
             if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
                 continue
@@ -207,7 +292,7 @@ class Silksong:
         return colliding_top
 
     def _clamp_player_above_colliding_ground(self):
-        """Clamp Hornet upward only when currently intersecting a ground/platform collider."""
+        """Push Hornet above the ground if she is currently inside a collider."""
         if not self.player:
             return
 
@@ -223,8 +308,29 @@ class Silksong:
         self.player.velocity_y = 0
         self.player.on_ground = True
 
+    def _reset_player_camera_follow(self, world_x=None, world_y=None):
+        """Return Hornet to the normal follow-camera behavior after arena lock or respawn."""
+        if not self.player:
+            return
+
+        if world_x is None:
+            world_x = int(self.player.rect.x + self.camera_x)
+        if world_y is None:
+            world_y = int(self.player.rect.y + self.camera_y)
+
+        if self.player_camera_anchor_x is None:
+            self.player_camera_anchor_x = int(self.player.rect.x)
+        if self.player_camera_anchor_y is None:
+            self.player_camera_anchor_y = int(self.player.rect.y)
+
+        self.player.rect.x = int(self.player_camera_anchor_x)
+        self.player.rect.y = int(self.player_camera_anchor_y)
+        self.camera_x = float(world_x - self.player.rect.x)
+        self.camera_y = float(world_y - self.player.rect.y)
+        self.camera_locked_to_arena = False
+
     def _clamp_mossgrub_above_colliding_ground(self, world_x=None):
-        """Clamp MossGrub upward only when currently intersecting a ground/platform collider."""
+        """Push MossGrub above the ground if it is currently inside a collider."""
         if not self.mossgrub:
             return
         
@@ -244,14 +350,147 @@ class Silksong:
         self.mossgrub.velocity_y = 0
         self.mossgrub.on_ground = True
 
+    def _set_mossgrub_patrol_on_platform(self, platform_rect, spawn_world_x=None):
+        """Place MossGrub on a specific world-space platform and clamp its patrol to that surface."""
+        if not self.mossgrub or platform_rect is None:
+            self.mossgrub_patrol_left = None
+            self.mossgrub_patrol_right = None
+            return
+
+        patrol_margin = max(18, self.mossgrub.rect.width // 2 + 6)
+        patrol_left = int(platform_rect.left + patrol_margin)
+        patrol_right = int(platform_rect.right - patrol_margin)
+        if patrol_right <= patrol_left:
+            patrol_left = int(platform_rect.centerx - 10)
+            patrol_right = int(platform_rect.centerx + 10)
+
+        if spawn_world_x is None:
+            mossgrub_world_x = int((patrol_left + patrol_right) / 2)
+        else:
+            mossgrub_world_x = int(max(patrol_left, min(patrol_right, spawn_world_x)))
+
+        self.mossgrub_patrol_left = patrol_left
+        self.mossgrub_patrol_right = patrol_right
+
+        self.mossgrub.rect.midbottom = (
+            int(mossgrub_world_x - self.camera_x),
+            int(platform_rect.top - self.camera_y),
+        )
+        self.mossgrub.velocity_y = 0
+        self.mossgrub.on_ground = True
+        if hasattr(self.mossgrub, "_frac_x"):
+            self.mossgrub._frac_x = 0.0
+
+    def _set_mossgrub_spawn_and_patrol(self):
+        """Spawn MossGrub just above the start platform and keep its patrol bounds in world space."""
+        if not self.mossgrub:
+            self.mossgrub_patrol_left = None
+            self.mossgrub_patrol_right = None
+            return
+
+        start_x = config.screen_width // 2
+
+        if len(self.ground_colliders) > 1:
+            spawn_platform = self.ground_colliders[1]
+            self._set_mossgrub_patrol_on_platform(spawn_platform)
+        else:
+            ground_top = self.ground_colliders[0].top if self.ground_colliders else int(self.world_ground_y)
+            fallback_platform = pygame.Rect(int(start_x + self.camera_x + 120), int(ground_top), 240, 10)
+            self._set_mossgrub_patrol_on_platform(fallback_platform)
+
     def _update_mouse_lock(self):
-        """Keep mouse unlocked so in-game UI remains clickable."""
+        """Ensure the mouse stays unlocked for UI interaction."""
         if self.mouse_locked:
             pygame.event.set_grab(False)
             self.mouse_locked = False
 
+    def trigger_camera_shake(self, duration=0.6, intensity=12.0):
+        """Trigger a reusable screen shake effect for dramatic moments."""
+        self.camera_shake_timer = max(self.camera_shake_timer, float(duration))
+        self.camera_shake_duration = max(self.camera_shake_duration, float(duration))
+        self.camera_shake_intensity = max(self.camera_shake_intensity, float(intensity))
+
+    def _update_camera_shake(self, dt):
+        """Advance the camera shake effect and update the render offset."""
+        if self.camera_shake_timer > 0.0:
+            self.camera_shake_timer = max(0.0, self.camera_shake_timer - dt)
+            fade = self.camera_shake_timer / max(0.001, self.camera_shake_duration)
+            intensity = max(0.0, self.camera_shake_intensity * fade)
+            max_offset = int(round(intensity))
+            self.camera_shake_offset = (
+                random.randint(-max_offset, max_offset) if max_offset > 0 else 0,
+                random.randint(-max_offset, max_offset) if max_offset > 0 else 0,
+            )
+        else:
+            self.camera_shake_duration = 0.0
+            self.camera_shake_intensity = 0.0
+            self.camera_shake_offset = (0, 0)
+
+    def _spawn_mossmother_cry_rocks(self):
+        """Spawn three falling rock hazards inside the arena, one of which becomes a MossGrub."""
+        if not self.boss_arena_rect:
+            self.falling_rocks = []
+            return
+
+        rock_size = 56
+        spawn_grub_index = random.randrange(3)
+        x_positions = (0.2, 0.5, 0.8)
+        self.falling_rocks = []
+
+        for idx, fraction in enumerate(x_positions):
+            rock_rect = pygame.Rect(0, 0, rock_size, rock_size)
+            world_x = int(self.boss_arena_rect.left + self.boss_arena_rect.width * fraction)
+            world_y = int(self.boss_arena_rect.top + 18 + idx * 12)
+            rock_rect.midtop = (world_x, world_y)
+            self.falling_rocks.append({
+                "rect": rock_rect,
+                "velocity_y": 0.0,
+                "spawn_mossgrub": idx == spawn_grub_index,
+            })
+
+    def _start_mossmother_cry_attack(self):
+        """Apply the cry-attack effects: shake, stun, and falling rocks."""
+        self.trigger_camera_shake(duration=0.9, intensity=14.0)
+        if self.player:
+            self.player.start_stun(2.0)
+        self._spawn_mossmother_cry_rocks()
+
+    def _update_falling_rocks(self, dt, player_world_rect):
+        """Advance falling cry-attack rocks, damage Hornet on contact, and spawn a MossGrub on one impact."""
+        if not self.falling_rocks:
+            return
+
+        remaining_rocks = []
+        for rock in self.falling_rocks:
+            rock_rect = rock["rect"]
+            rock["velocity_y"] += self.rock_fall_gravity * dt
+            rock_rect.y += int(rock["velocity_y"] * dt)
+
+            ground_top = self._get_colliding_ground_top_for_world_rect(rock_rect)
+            if ground_top is not None and rock_rect.bottom >= ground_top:
+                rock_rect.bottom = int(ground_top)
+                if rock.get("spawn_mossgrub") and self.mossgrub:
+                    self.mossgrub.health = self.mossgrub.max_health
+                    arena_floor_rect = pygame.Rect(
+                        int(self.boss_arena_rect.left),
+                        int(self.boss_arena_rect.bottom),
+                        int(self.boss_arena_rect.width),
+                        10,
+                    )
+                    self._set_mossgrub_patrol_on_platform(arena_floor_rect, spawn_world_x=rock_rect.centerx)
+                continue
+
+            if self.player and player_world_rect.colliderect(rock_rect) and self.player_contact_damage_timer <= 0.0:
+                knockback_direction = -1 if player_world_rect.centerx < rock_rect.centerx else 1
+                self.player.take_damage(1, knockback_direction=knockback_direction)
+                self.player_contact_damage_timer = self.player_contact_damage_cooldown
+
+            remaining_rocks.append(rock)
+
+        self.falling_rocks = remaining_rocks
+
     def create_buttons(self):
-        """Create buttons for the title screen."""
+        """Create the title screen menu buttons."""
         # Scale positions to actual screen size
         button_spacing = int(80 * config.scale_y)
         shifty = int(200 * config.scale_y)
@@ -296,8 +535,8 @@ class Silksong:
         keys = pygame.key.get_pressed()
         camera_movement = player.handle_input(keys)
 
-            # Update camera position based on player movement
-        if camera_movement:
+        # Update camera position based on player movement unless the arena lock is active.
+        if camera_movement and not self.camera_locked_to_arena:
             self.camera_x += camera_movement[0] * dt
             self.camera_y += camera_movement[1] * dt
 
@@ -305,19 +544,31 @@ class Silksong:
             dt,
             collision_rects=self.ground_colliders,
             camera_x=self.camera_x,
-            camera_y=self.camera_y
+            camera_y=self.camera_y,
+            move_horizontally=self.camera_locked_to_arena
         )
 
-        # Apply wall collision correction from player
-        self.camera_x += player.camera_x_correction
+        # Apply wall collision correction from player.
+        if self.camera_locked_to_arena:
+            self.player.rect.x += int(player.camera_x_correction)
+        else:
+            self.camera_x += player.camera_x_correction
 
-            # Keep Hornet vertically anchored on screen and move camera instead.
-        if self.player_camera_anchor_y is None:
-            self.player_camera_anchor_y = int(player.rect.y)
-        vertical_delta = int(player.rect.y - self.player_camera_anchor_y)
-        if vertical_delta != 0:
-            self.camera_y += vertical_delta
-            player.rect.y = int(self.player_camera_anchor_y)
+        # Keep Hornet anchored on screen only while the camera is following her.
+        if not self.camera_locked_to_arena:
+            if self.player_camera_anchor_x is None:
+                self.player_camera_anchor_x = int(player.rect.x)
+            if self.player_camera_anchor_y is None:
+                self.player_camera_anchor_y = int(player.rect.y)
+            vertical_delta = int(player.rect.y - self.player_camera_anchor_y)
+            if vertical_delta != 0:
+                self.camera_y += vertical_delta
+                player.rect.y = int(self.player_camera_anchor_y)
+
+        player_world_rect = player.rect.copy()
+        player_world_rect.x += int(self.camera_x)
+        player_world_rect.y += int(self.camera_y)
+        self._sync_camera_lock_to_boss_arena(player_world_rect, dt)
 
         player_world_rect = player.rect.copy()
         player_world_rect.x += int(self.camera_x)
@@ -348,15 +599,26 @@ class Silksong:
             # Update enemy and resolve combat interactions
             
         total_d = 300
-        grubleftground = player.rect.centerx - total_d / 2
-        grubrightbound = player.rect.centerx + total_d / 2
+        if self.mossgrub_patrol_left is not None and self.mossgrub_patrol_right is not None:
+            mossgrub_left_bound = int(self.mossgrub_patrol_left - self.camera_x)
+            mossgrub_right_bound = int(self.mossgrub_patrol_right - self.camera_x)
+        else:
+            mossgrub_left_bound = int(player.rect.centerx - total_d / 2)
+            mossgrub_right_bound = int(player.rect.centerx + total_d / 2)
+
+        if self.boss_arena_rect:
+            boss_left_bound = int(self.boss_arena_rect.left - self.camera_x)
+            boss_right_bound = int(self.boss_arena_rect.right - self.camera_x)
+        else:
+            boss_left_bound = int(player.rect.centerx - total_d / 2)
+            boss_right_bound = int(player.rect.centerx + total_d / 2)
 
         # Compute camera delta this frame for mossgrub
         camera_dx = self.camera_x - prev_camera_x
         camera_dy = self.camera_y - prev_camera_y
 
         if self.mossgrub and self.mossgrub.health > 0:
-            self.mossgrub.update(grubleftground, grubrightbound, dt,
+            self.mossgrub.update(mossgrub_left_bound, mossgrub_right_bound, dt,
                                 collision_rects=self.ground_colliders,
                                 camera_x=self.camera_x,
                                 camera_y=self.camera_y,
@@ -364,13 +626,18 @@ class Silksong:
                                 camera_dy=camera_dy)
 
         if self.mossmother and self.mossmother.health > 0:
-            self.mossmother.update(grubleftground, grubrightbound, dt,
+            self.mossmother.update(boss_left_bound, boss_right_bound, dt,
                                 collision_rects=self.ground_colliders,
                                 camera_x=self.camera_x,
                                 camera_y=self.camera_y,
                                 camera_dx=camera_dx,
                                 camera_dy=camera_dy,
-                                player_world_rect=player_world_rect)
+                                player_world_rect=player_world_rect,
+                                arena_rect=self.boss_arena_rect)
+            if self.mossmother.consume_cry_attack_trigger():
+                self._start_mossmother_cry_attack()
+
+        self._update_falling_rocks(dt, player_world_rect)
 
         if player.consume_attack_trigger():
             player.start_attack_hitbox(
@@ -402,7 +669,11 @@ class Silksong:
                 if attack_rect.colliderect(mossmother_world):
                     if not player.attack_hit_mossmother:
                         knockback_direction = 1 if player_world_rect.centerx < mossmother_world.centerx else -1
-                        self.mossmother.take_damage(self.attack_damage, knockback_direction=knockback_direction)
+                        self.mossmother.take_damage(
+                            self.attack_damage,
+                            knockback_direction=knockback_direction,
+                            apply_knockback=not self.mossmother.is_attacking,
+                        )
                         player.apply_attack_recoil_on_hit()
                         player.gain_silk(self.silk_per_hit)
                         player.attack_hit_mossmother = True
@@ -442,8 +713,35 @@ class Silksong:
         # Persist whenever tracked game state changes (including mid-air positions)
         self.save_current_game_state()
 
+    def _reset_encounter_state(self):
+        """Clear temporary hazards and restore enemies to their encounter start state."""
+        self.falling_rocks = []
+        self.player_contact_damage_timer = 0.0
+        self.camera_shake_timer = 0.0
+        self.camera_shake_duration = 0.0
+        self.camera_shake_intensity = 0.0
+        self.camera_shake_offset = (0, 0)
+        self.player_near_bench = False
+        self.bench_interact_text = ""
+        self._bench_interact_key_down = False
+
+        if self.mossgrub:
+            self.mossgrub.health = self.mossgrub.max_health
+            self._set_mossgrub_spawn_and_patrol()
+
+        if self.mossmother:
+            if self.boss_arena_rect:
+                arena_spawn_x = int(self.boss_arena_rect.centerx)
+                arena_spawn_y = int(self.boss_arena_rect.top + self.mossmother.rect.height + 40)
+                self.mossmother.reset_position(arena_spawn_x, arena_spawn_y)
+            else:
+                self.mossmother.reset_position(self.mossmother.rect.centerx, self.mossmother.rect.bottom)
+
     def respawn_player(self):
-        """Respawn Hornet at the latest rested bench position."""
+        """Respawn Hornet at the last bench rest position and reset the encounter."""
+        if not self.player:
+            return
+
         respawn_x = int(self.player.rect.x + self.camera_x)
         respawn_y = int(self.player.rect.y + self.camera_y)
 
@@ -451,33 +749,27 @@ class Silksong:
             respawn_x = int(self.respawn_position[0])
             respawn_y = int(self.respawn_position[1])
 
-        # Restore world-space respawn location first.
-        self.camera_x = respawn_x - self.player.rect.x
-        self.camera_y = respawn_y - self.player.rect.y
+        # Restore world-space respawn location and release any arena camera lock.
+        self._reset_player_camera_follow(world_x=respawn_x, world_y=respawn_y)
         self._clamp_player_above_colliding_ground()
+        self.player.reset_position(self.player.rect.centerx, self.player.rect.bottom)
 
-        self.player.velocity_x = 0
-        self.player.velocity_y = 0
         self.player.health = self.player.max_health
         self.player.cancel_heal_channel()
         self.player.is_resting = False
         self.player.rest_timer = 0.0
-        self.player.velocity_y = 0
         self.player.on_ground = True
-        self.player_contact_damage_timer = 0.0
+
+        self._reset_encounter_state()
         self.save_current_game_state(force=True)
 
     def respawn_mossgrub(self):
-        """Respawn MossGrub at the latest rested bench position."""
-        self.mossgrub.health = self.mossgrub.max_health
-        self._clamp_mossgrub_above_colliding_ground()
-        if self.mossmother:
-            self.mossmother.health = self.mossmother.max_health
-            self.mossmother.reset_position(self.mossmother.rect.centerx, self.mossmother.rect.bottom)
+        """Respawn MossGrub and Moss Mother at full health."""
+        self._reset_encounter_state()
         self.save_current_game_state(force=True)
 
     def save_current_game_state(self, force=False):
-        """Save core player progress to the currently selected save slot."""
+        """Save player progress to the current save slot if state changed."""
         if not self.player or self.current_slot not in self.save_file.save_slots:
             return
 
@@ -538,7 +830,7 @@ class Silksong:
         self._last_saved_signature = state_signature
     
     def change_state(self, new_state):
-        """Change game state with black fade transition."""
+        """Transition to a new game state with a black fade."""
         def on_state_change(target_state):
             self.state = target_state
             # Refresh save slot cache when entering save files screen
@@ -592,6 +884,7 @@ class Silksong:
         # Draw background (could add parallax later)
         # Get the look offset from the player (camera pans up/down)
         look_y = self.player.camera_look_y if self.player else 0
+        shake_x, shake_y = self.camera_shake_offset
 
         bg_width, bg_height = self.background_image.get_size()
         bg_x = int(-self.camera_x * 0.5)
@@ -602,13 +895,13 @@ class Silksong:
         base_y = (bg_y % bg_height) - bg_height
         for x_offset in (0, bg_width, bg_width * 2):
             for y_offset in (0, bg_height, bg_height * 2):
-                self.screen.blit(self.background_image, (base_x + x_offset, base_y + y_offset))
+                self.screen.blit(self.background_image, (base_x + x_offset + shake_x, base_y + y_offset + shake_y))
         
         # Draw ground and platforms
         if self.ground_colliders:
             for cr in self.ground_colliders:
-                screen_x = int(cr.left - self.camera_x)
-                screen_y = int(cr.top - self.camera_y - look_y)
+                screen_x = int(cr.left - self.camera_x + shake_x)
+                screen_y = int(cr.top - self.camera_y - look_y + shake_y)
                 if cr.width > 5000:
                     # Main ground: blue highlighted strip
                     ground_band = pygame.Rect(0, screen_y, config.screen_width, max(2, config.screen_height - screen_y))
@@ -622,19 +915,20 @@ class Silksong:
         
         # Draw player (offset by look_y so player moves with the world)
         if self.player:
-            self.player.bench.draw(self.screen, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y)
-            self.player.draw(self.screen, look_y_offset=-look_y)
+            self.player.bench.draw(self.screen, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y, screen_offset=(shake_x, shake_y))
+            self.player.draw(self.screen, look_y_offset=-look_y, screen_offset=(shake_x, shake_y))
 
             # Debug: highlight Hornet collision rect.
             player_debug_rect = self.player.rect.copy()
-            player_debug_rect.y -= int(look_y)
+            player_debug_rect.x += int(shake_x)
+            player_debug_rect.y += int(shake_y - look_y)
             pygame.draw.rect(self.screen, (0, 255, 80), player_debug_rect, 2)
 
             # Debug: highlight Hornet attack hitbox while active.
             if self.player.attack_hitbox:
                 attack_draw_rect = self.player.attack_hitbox.copy()
-                attack_draw_rect.x -= int(self.camera_x)
-                attack_draw_rect.y -= int(self.camera_y + look_y)
+                attack_draw_rect.x -= int(self.camera_x - shake_x)
+                attack_draw_rect.y -= int(self.camera_y + look_y - shake_y)
 
                 attack_fill = pygame.Surface((attack_draw_rect.width, attack_draw_rect.height), pygame.SRCALPHA)
                 attack_fill.fill((255, 200, 60, 85))
@@ -644,7 +938,8 @@ class Silksong:
         # Draw MossGrub (rect is now in screen space)
         if self.mossgrub and self.mossgrub.health > 0:
             enemy_draw_rect = self.mossgrub.rect.copy()
-            enemy_draw_rect.y -= int(look_y)
+            enemy_draw_rect.x += int(shake_x)
+            enemy_draw_rect.y += int(shake_y - look_y)
 
             if self.mossgrub.facing_right == 1:
                 self.screen.blit(self.mossgrub.image_flipped, enemy_draw_rect)
@@ -656,7 +951,8 @@ class Silksong:
         # Draw Moss Mother (rect is now in screen space)
         if self.mossmother and self.mossmother.health > 0:
             mother_draw_rect = self.mossmother.rect.copy()
-            mother_draw_rect.y -= int(look_y)
+            mother_draw_rect.x += int(shake_x)
+            mother_draw_rect.y += int(shake_y - look_y)
 
             if self.mossmother.facing_right:
                 self.screen.blit(self.mossmother.image, mother_draw_rect)
@@ -664,6 +960,16 @@ class Silksong:
                 self.screen.blit(self.mossmother.image_flipped, mother_draw_rect)
 
             pygame.draw.rect(self.screen, (255, 170, 70), mother_draw_rect, 2)
+
+        # Draw falling rock hitboxes for the cry attack.
+        for rock in self.falling_rocks:
+            rock_draw_rect = rock["rect"].copy()
+            rock_draw_rect.x -= int(self.camera_x - shake_x)
+            rock_draw_rect.y -= int(self.camera_y + look_y - shake_y)
+            rock_fill = pygame.Surface((rock_draw_rect.width, rock_draw_rect.height), pygame.SRCALPHA)
+            rock_fill.fill((255, 120, 80, 110))
+            self.screen.blit(rock_fill, rock_draw_rect.topleft)
+            pygame.draw.rect(self.screen, (255, 210, 120), rock_draw_rect, 2)
 
         # HUD: health, silk, and healing state
         if self.player:
@@ -681,6 +987,10 @@ class Silksong:
                 rest_text = hud_font.render("Resting...", True, config.white)
                 self.screen.blit(rest_text, (25, 125))
 
+            if self.player.stun_timer > 0.0:
+                stun_text = hud_font.render(f"Stunned... {self.player.stun_timer:.1f}s", True, (255, 220, 140))
+                self.screen.blit(stun_text, (25, 160))
+
             if self.bench_interact_text:
                 prompt_font = config.get_font(int(32 * config.scale_y))
                 prompt_surface = prompt_font.render(self.bench_interact_text, True, config.white)
@@ -694,7 +1004,7 @@ class Silksong:
         self.game_back_button.draw(self.screen)
     
     def draw(self):
-        """Render the game."""
+        """Render the current state to the screen."""
         if self.cursor_image:
             pygame.mouse.set_visible(False)
         else:
@@ -732,12 +1042,9 @@ class Silksong:
         pygame.display.flip()
 
     def update(self, dt):
-        """
-        Update the game state.
-        Args:
-            dt (float): Delta time since last update.
-        """
+        """Update the current game state by dt seconds."""
         self._update_mouse_lock()
+        self._update_camera_shake(dt)
 
         # Update transition manager
         self.transition_manager.update(dt)
@@ -754,7 +1061,7 @@ class Silksong:
             self.update_game(dt)
             
     def handle_events(self):
-        """Handle user input events."""
+        """Process all pending pygame events and dispatch by state."""
         for event in pygame.event.get():
             if event.type == pygame.QUIT or self.state == "exit":
                 self.running = False
@@ -817,6 +1124,7 @@ class Silksong:
                         # Mossgrub will be placed after camera is finalized below
                         self.camera_x = 0
                         self.camera_y = 0
+                        self.player_camera_anchor_x = int(self.player.rect.x)
                         self.player_camera_anchor_y = int(self.player.rect.y)
                         self.respawn_position = [
                             int(self.player.rect.x + self.camera_x),
@@ -853,32 +1161,22 @@ class Silksong:
                         # Only correct penetration if the loaded position intersects a floor collider.
                         self._clamp_player_above_colliding_ground()
 
-                        # Place mossgrub now that camera is finalized.
-                        # Spawn above a platform so gravity behavior is easy to test.
-                        if len(self.ground_colliders) > 1:
-                            spawn_platform = self.ground_colliders[1]
-                            mossgrub_world_x = int(spawn_platform.centerx)
-                            mossgrub_world_bottom = int(spawn_platform.top - 120)
-                            mossmother_world_x = int(spawn_platform.centerx + 240)
-                            mossmother_world_bottom = int(spawn_platform.top - 180)
-                        else:
-                            ground_top = self.ground_colliders[0].top if self.ground_colliders else int(self.world_ground_y)
-                            mossgrub_world_x = int(start_x + self.camera_x + 240)
-                            mossgrub_world_bottom = int(ground_top - 120)
-                            mossmother_world_x = int(start_x + self.camera_x - 240)
-                            mossmother_world_bottom = int(ground_top - 180)
+                        # Place MossGrub using stable world-space platform bounds.
+                        self._set_mossgrub_spawn_and_patrol()
 
-                        mossgrub_screen_x = int(mossgrub_world_x - self.camera_x)
-                        mossgrub_screen_bottom = int(mossgrub_world_bottom - self.camera_y)
-                        self.mossgrub.rect.midbottom = (mossgrub_screen_x, mossgrub_screen_bottom)
-                        self.mossgrub.on_ground = False
-                        self.mossgrub.velocity_y = 0
+                        if self.boss_arena_rect:
+                            mossmother_world_x = int(self.boss_arena_rect.centerx)
+                            mossmother_world_bottom = int(self.boss_arena_rect.top + self.mossmother.rect.height + 40)
+                        else:
+                            mossmother_world_x = int(start_x + self.camera_x - 240)
+                            mossmother_world_bottom = int((self.ground_colliders[0].top if self.ground_colliders else int(self.world_ground_y)) - 180)
 
                         mossmother_screen_x = int(mossmother_world_x - self.camera_x)
                         mossmother_screen_bottom = int(mossmother_world_bottom - self.camera_y)
                         self.mossmother.rect.midbottom = (mossmother_screen_x, mossmother_screen_bottom)
                         self.mossmother.on_ground = False
                         self.mossmother.velocity_y = 0
+                        self.mossmother.is_engaged = False
 
                         saved_respawn_position = loaded_state.get("player_respawn_position")
                         if isinstance(saved_respawn_position, list) and len(saved_respawn_position) >= 2:
@@ -891,26 +1189,46 @@ class Silksong:
 
                         saved_mossgrub_position = loaded_state.get("mossgrub_position")
                         if isinstance(saved_mossgrub_position, list) and len(saved_mossgrub_position) >= 2:
-                            # Convert saved world-space position to screen space
+                            # Restore only sane world-space positions; otherwise keep the default platform spawn.
                             saved_mossgrub_world_x = int(saved_mossgrub_position[0])
                             saved_mossgrub_world_y = int(saved_mossgrub_position[1])
-                            self.mossgrub.rect.x = saved_mossgrub_world_x - int(self.camera_x)
-                            self.mossgrub.rect.y = saved_mossgrub_world_y - int(self.camera_y)
+                            saved_mossgrub_world_rect = pygame.Rect(
+                                saved_mossgrub_world_x,
+                                saved_mossgrub_world_y,
+                                self.mossgrub.rect.width,
+                                self.mossgrub.rect.height,
+                            )
 
-                            saved_mossgrub_world_rect = self.mossgrub.rect.copy()
-                            saved_mossgrub_world_rect.x += int(self.camera_x)
-                            saved_mossgrub_world_rect.y += int(self.camera_y)
+                            within_patrol_x = True
+                            if self.mossgrub_patrol_left is not None and self.mossgrub_patrol_right is not None:
+                                within_patrol_x = self.mossgrub_patrol_left - 120 <= saved_mossgrub_world_rect.centerx <= self.mossgrub_patrol_right + 120
+
                             colliding_top = self._get_colliding_ground_top_for_world_rect(saved_mossgrub_world_rect)
-                            if colliding_top is not None and saved_mossgrub_world_rect.bottom > colliding_top + 2:
-                                self._clamp_mossgrub_above_colliding_ground(world_x=saved_mossgrub_world_x)
+                            near_valid_floor = colliding_top is not None and abs(saved_mossgrub_world_rect.bottom - colliding_top) <= 220
+
+                            if within_patrol_x and near_valid_floor:
+                                self.mossgrub.rect.x = saved_mossgrub_world_x - int(self.camera_x)
+                                self.mossgrub.rect.y = saved_mossgrub_world_y - int(self.camera_y)
+
+                                if saved_mossgrub_world_rect.bottom > colliding_top + 2:
+                                    self._clamp_mossgrub_above_colliding_ground(world_x=saved_mossgrub_world_x)
+                            else:
+                                self._set_mossgrub_spawn_and_patrol()
 
                         saved_mossgrub_health = loaded_state.get("mossgrub_health", self.mossgrub.health)
                         self.mossgrub.health = max(0, min(self.mossgrub.max_health, int(saved_mossgrub_health)))
 
                         saved_mossmother_position = loaded_state.get("mossmother_position")
                         if self.mossmother and isinstance(saved_mossmother_position, list) and len(saved_mossmother_position) >= 2:
-                            self.mossmother.rect.x = int(saved_mossmother_position[0]) - int(self.camera_x)
-                            self.mossmother.rect.y = int(saved_mossmother_position[1]) - int(self.camera_y)
+                            saved_mossmother_world = pygame.Rect(
+                                int(saved_mossmother_position[0]),
+                                int(saved_mossmother_position[1]),
+                                self.mossmother.rect.width,
+                                self.mossmother.rect.height,
+                            )
+                            if not self.boss_arena_rect or self.boss_arena_rect.colliderect(saved_mossmother_world):
+                                self.mossmother.rect.x = int(saved_mossmother_position[0]) - int(self.camera_x)
+                                self.mossmother.rect.y = int(saved_mossmother_position[1]) - int(self.camera_y)
 
                         saved_mossmother_health = loaded_state.get("mossmother_health", self.mossmother.health if self.mossmother else 0)
                         if self.mossmother:
@@ -920,6 +1238,7 @@ class Silksong:
                         self.player_near_bench = False
                         self.bench_interact_text = ""
                         self._bench_interact_key_down = False
+                        self.player_camera_anchor_x = int(self.player.rect.x)
                         self.player_camera_anchor_y = int(self.player.rect.y)
                         # Persist state immediately so schema stays up-to-date
                         self.save_current_game_state(force=True)

@@ -5,17 +5,7 @@ from animation import Animation
 
 class Button:
     def __init__(self, x: int, y: int, text: str, color: Tuple[int,int,int], font_path: Optional[str] = None, font_size: int = 32):
-        """
-        Initialize a button with pointer animations.
-        Args:
-            x (int): X position of the button center.
-            y (int): Y position of the button center.
-            text (str): Text to display on the button.
-            color (Tuple[int,int,int]): Color of the text.
-            font_path (Optional[str]): Path to custom font file. If None, uses default system font.
-            font_size (int): Size of the font (default: 32).
-            pointer_sheet (str): Path to the pointer spritesheet (42x48, 10 sprites).
-        """
+        """Create a button with animated pointer indicators."""
         self.x = x
         self.y = y
         self._text = text
@@ -45,7 +35,7 @@ class Button:
         self.current_state = "normal"
     
     def _update_text_cache(self):
-        """Update cached text surface and rect."""
+        """Rebuild the cached text surface and collision rect."""
         self._text_surface = self.font.render(self.text, True, self.color)
         self._text_rect = self._text_surface.get_rect(center=(self.x, self.y))
         # Cache collision rect
@@ -54,7 +44,7 @@ class Button:
         self._cached_rect = collision_rect
     
     def _load_pointer_animations(self):
-        """Load pointer animations from the spritesheet."""
+        """Set up hover, pressed, and release animations from the spritesheet."""
         # Hover state
         self.pointer_anim.add_animation(
             "hover",
@@ -86,11 +76,7 @@ class Button:
         )
     
     def draw(self, screen: pygame.Surface):
-        """
-        Draw the button with static text and animated pointers on both sides.
-        Args:
-            screen (pygame.Surface): The surface to draw on.
-        """
+        """Draw the button text with animated pointers on both sides."""
         # Get current pointer frame based on state
         if self.current_state == "normal":
             # Normal state
@@ -112,11 +98,7 @@ class Button:
         screen.blit(right_pointer, right_rect)
     
     def update(self, dt: float):
-        """
-        Update the button's state and pointer animation.
-        Args:
-            dt (float): Delta time since last update.
-        """
+        """Update hover state and pointer animation."""
         
         # Update pointer animation based on state (use cached rect)
         mouse_pos = pygame.mouse.get_pos()
@@ -155,49 +137,35 @@ class Button:
     
     @property
     def _rect(self) -> pygame.Rect:
-        """Get the button's collision rect from cache."""
+        """Return the cached collision rect."""
         return self._cached_rect
 
     def is_clicked(self, pos):
-        """
-        Check if the button is currently clicked.
-        Args:
-            pos (Tuple[int,int]): Position to check.
-        Returns:
-            bool: True if clicked, False otherwise.
-        """
+        """Return True if the button is active and the position is inside it."""
         return self._cached_rect.collidepoint(pos) and self.active
     
     def is_hovered(self):
-        """
-        Check if the button is currently hovered.
-        Returns:
-            bool: True if hovered, False otherwise.
-        """
+        """Return True if the mouse is over the button."""
         mouse_pos = pygame.mouse.get_pos()
         return self._cached_rect.collidepoint(mouse_pos)
     
     def press(self):
-        """Trigger the button press animation."""
+        """Start the button press animation."""
         self.press_timer = self.press_duration
     
     def set_cooldown(self, cooldown_time: float):
-        """
-        Set the button's cooldown.
-        Args:
-            cooldown_time (float): Cooldown time in seconds.
-        """
+        """Set the button cooldown duration in seconds."""
         self.cooldown = cooldown_time
         self.max_cooldown = cooldown_time
     
     @property
     def text(self) -> str:
-        """Get the button text."""
+        """Get the button label text."""
         return self._text
     
     @text.setter
     def text(self, value: str):
-        """Set the button text and update cache."""
+        """Set the button label text and refresh the cached surface."""
         if self._text != value:
             self._text = value
             self._update_text_cache()

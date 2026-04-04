@@ -2,9 +2,7 @@ import pygame
 from typing import Optional, Callable
 
 class Slider:
-    """
-    Slider control for adjusting numeric values.
-    """
+    """Draggable slider for adjusting a numeric value within a range."""
 
     def __init__(self, x: int, y: int, width: int, height: int, min_val: float, max_val: float,
                  initial_val: float, label: str = "", callback: Optional[Callable] = None):
@@ -19,13 +17,13 @@ class Slider:
         self.update()
     
     def update(self):
-        """Update the handle position based on the current value."""
+        """Recalculate the handle position from the current value."""
         progress = (self.value - self.min_val) / (self.max_val - self.min_val)
         handle_x = self.rect.x + progress * (self.rect.width - self.handle_width)
         self.handle_rect = pygame.Rect(handle_x, self.rect.y - 5, self.handle_width, self.rect.height + 10)
 
     def handle_event(self, event):
-        """Handle mouse events for the slider."""
+        """Process mouse events for dragging and clicking."""
         if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
             if self.handle_rect.collidepoint(event.pos):
                 self.dragging = True
@@ -50,7 +48,7 @@ class Slider:
                     self.callback(self.value)
         
     def draw(self, surface, font=None):
-        """Draw the slider on the given surface."""
+        """Draw the slider track, fill bar, handle, and optional label."""
         pygame.draw.rect(surface, (100, 100, 100), self.rect, border_radius=self.rect.height//2)
         fill_width = int((self.value - self.min_val) / (self.max_val - self.min_val) * self.rect.width)
         fill_rect = pygame.Rect(self.rect.x, self.rect.y, fill_width, self.rect.height)

@@ -6,12 +6,7 @@ from typing import List, Dict, Tuple
 
 class ParticleSystem:
     def __init__(self, screen_width=None, screen_height=None):
-        """
-        Initialize the particle system.
-        Args:
-            screen_width: Width of the screen for ember spawning
-            screen_height: Height of the screen for ember spawning
-        """
+        """Create the particle system for the given screen dimensions."""
         self.particles: List[Dict] = []
         self.float_texts: List[Dict] = []
         # Screen shake
@@ -34,26 +29,26 @@ class ParticleSystem:
         self._surface_cache = {}
         
     def load_ember_image(self, image_path):
-        """Load the ember particle image."""
+        """Load the standard ember particle image."""
         self.ember_image = pygame.image.load(image_path).convert_alpha()
 
     def load_ember_round_image(self, image_path):
-        """Load the round ember particle image."""
+        """Load the round background ember particle image."""
         self.ember_round_image = pygame.image.load(image_path).convert_alpha()
         
     def enable_ember_spawning(self, enabled=True):
-        """Enable or disable automatic ember spawning."""
+        """Toggle automatic ember particle spawning."""
         self.ember_enabled = enabled
 
     def _trim_surface_cache(self):
-        """Bound cache growth to prevent memory and CPU spikes."""
+        """Evict old entries when the surface cache grows too large."""
         if len(self._surface_cache) > self.max_cache_entries:
             drop_count = max(1, self.max_cache_entries // 4)
             for _ in range(drop_count):
                 self._surface_cache.pop(next(iter(self._surface_cache)), None)
 
     def _get_cached_ember_surface(self, img, size, angle, alpha):
-        """Fetch a cached transformed ember image with quantized buckets."""
+        """Return a cached, transformed ember image using quantized buckets."""
         scale_factor = max(0.2, size / 3.0)
         scale_bucket = round(scale_factor * 4) / 4.0
         angle_bucket = int(round(angle / 5.0) * 5)
@@ -74,14 +69,7 @@ class ParticleSystem:
         return rotated_img
 
     def spawn_sparks(self, x: float, y: float, count: int = 12, color: Tuple[int,int,int]=(255,200,100)):
-        """
-        Spawn spark particles.
-        Args:
-            x (float): X position to spawn sparks.
-            y (float): Y position to spawn sparks.
-            count (int): Number of sparks to spawn.
-            color (Tuple[int,int,int]): Color of the sparks.
-        """
+        """Spawn burst spark particles at the given position."""
         MAX = 500
         available = max(0, MAX - len(self.particles))
         to_spawn = min(count, available)
@@ -103,13 +91,7 @@ class ParticleSystem:
             })
 
     def spawn_smoke(self, x: float, y: float, count: int = 10):
-        """
-        Spawn smoke particles.
-        Args:
-            x (float): X position to spawn smoke.
-            y (float): Y position to spawn smoke.
-            count (int): Number of smoke particles to spawn.
-        """
+        """Spawn rising smoke particles at the given position."""
         MAX = 500
         available = max(0, MAX - len(self.particles))
         to_spawn = min(count, available)
@@ -129,14 +111,7 @@ class ParticleSystem:
             })
 
     def spawn_embers(self, x: float, y: float, count: int = 1, image=None):
-        """
-        Spawn ember particles that float from bottom left to top right.
-        Args:
-            x (float): X position to spawn embers.
-            y (float): Y position to spawn embers.
-            count (int): Number of embers to spawn.
-            image: Pygame surface to use as ember image.
-        """
+        """Spawn ember particles that float diagonally from bottom-left to top-right."""
         MAX = 1000
         available = max(0, MAX - len(self.particles))
         to_spawn = min(count, available)
@@ -178,15 +153,7 @@ class ParticleSystem:
             })
 
     def spawn_round_embers(self, x: float, y: float, count: int = 1, image=None):
-        """
-        Spawn round background ember particles with depth-based velocity and sin sway.
-        No size change over lifetime. Biased toward small sizes to stay in the background.
-        Args:
-            x (float): X position to spawn embers.
-            y (float): Y position to spawn embers.
-            count (int): Number of embers to spawn.
-            image: Pygame surface to use as ember image (falls back to ember_round_image).
-        """
+        """Spawn round background embers with depth-based velocity and sway."""
         img = image or self.ember_round_image
         MAX = 1000
         available = max(0, MAX - len(self.particles))
@@ -224,13 +191,7 @@ class ParticleSystem:
             })
 
     def add_detection_popup(self, delta: int, x: float, y: float):
-        """
-        Add a floating text popup for damage or healing.
-        Args:
-            delta (int): Amount of damage (negative) or healing (positive).
-            x (float): X position for the popup.
-            y (float): Y position for the popup.
-        """
+        """Add a floating damage or healing number popup."""
         txt = f"{'+' if delta>0 else ''}{int(delta)}"
         col = (0,255,0) if delta > 0 else (255,0,0)
         self.float_texts.append({
@@ -245,11 +206,7 @@ class ParticleSystem:
         })
 
     def update(self, dt: float):
-        """
-        Update the particle system.
-        Args:
-            dt (float): Delta time since last update.
-        """
+        """Advance all particles, floating texts, screen shake, and auto-spawning."""
         # Update particles
         alive_particles = []
         for p in self.particles:
@@ -329,13 +286,7 @@ class ParticleSystem:
                 self.spawn_round_embers(spawn_x, spawn_y, count=spawn_count, image=self.ember_round_image)
 
     def draw_particles(self, surface: pygame.Surface, size_min=None, size_max=None):
-        """
-        Draw the particles on the given surface.
-        Args:
-            surface (pygame.Surface): The surface to draw on.
-            size_min (float): Minimum size to draw (inclusive).
-            size_max (float): Maximum size to draw (inclusive).
-        """
+        """Draw particles to the surface, optionally filtered by size range."""
         # Sort particles by size for depth effect (smaller = farther = behind, larger = closer = in front)
         self.particles.sort(key=lambda p: p.get('size', 0))
         
@@ -386,21 +337,14 @@ class ParticleSystem:
                 surface.blit(s, (int(p['x'])-r, int(p['y'])-r))
 
     def draw_float_texts(self, surface: pygame.Surface, font: pygame.font.Font):
-        """
-        Draw the floating text popups on the given surface.
-        Args:
-            surface (pygame.Surface): The surface to draw on.
-            font (pygame.font.Font): The font to use for the text.
-        """
+        """Draw floating text popups on the surface."""
         for ft in self.float_texts:
             txt_surf = font.render(ft['text'], True, ft['color'])
             txt_surf.set_alpha(ft.get('alpha', 255))
             surface.blit(txt_surf, (int(ft['x']), int(ft['y'])))
 
     def clear(self):
-        """
-        Clear all particles and floating texts.
-        """
+        """Remove all particles and reset screen shake."""
         self.particles.clear()
         self.float_texts.clear()
         self.shake_amount = 0.0
@@ -409,16 +353,12 @@ class ParticleSystem:
         self._surface_cache.clear()
     
     def start_shake(self, amount: float, duration: float):
-        """
-        Start or boost a screen shake effect
-        """
+        """Start or boost a screen shake effect."""
         self.shake_amount = max(self.shake_amount, float(amount))
         self.shake_time = self.shake_duration = float(duration)
     
     def get_shake_offset(self):
-        """
-        Return an (x,y) random offset based on current shake state
-        """
+        """Return a random x, y offset based on the current shake intensity."""
         if self.shake_amount <= 0:
             return 0, 0
         frac = (self.shake_time / max(0.0001, self.shake_duration)) if self.shake_duration > 0 else 0

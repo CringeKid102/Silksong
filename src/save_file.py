@@ -9,20 +9,10 @@ from animation import Animation
 
 
 class SaveSlotButton:
-    """Custom button for save slots with hover pointers and background."""
+    """Visual button for a save slot with hover effects and background."""
     
     def __init__(self, x: int, y: int, width: int, height: int, slot_num: int, save_exists: bool, background_img=None):
-        """
-        Initialize a save slot button.
-        Args:
-            x (int): X position (top-left corner)
-            y (int): Y position (top-left corner)
-            width (int): Width of the button
-            height (int): Height of the button
-            slot_num (int): Save slot number
-            save_exists (bool): Whether save file exists
-            background_img: Background image if save exists
-        """
+        """Create a save slot button at the given position."""
         self.x = x
         self.y = y
         self.width = width
@@ -51,17 +41,17 @@ class SaveSlotButton:
         self.active = True
         
     def update_save_status(self, save_exists: bool, background_img=None):
-        """Update whether save exists and background image."""
+        """Refresh whether a save exists and update the background image."""
         self.save_exists = save_exists
         self.background_img = background_img
     
     def update(self, dt: float):
-        """Update button state."""
+        """Update hover state based on mouse position."""
         mouse_pos = pygame.mouse.get_pos()
         self.is_hovering = self.rect.collidepoint(mouse_pos) and self.active
     
     def draw(self, screen: pygame.Surface):
-        """Draw the save slot button."""
+        """Draw the save slot with background or NEW GAME text and hover effects."""
         # Draw background or "NEW GAME" text
         if self.save_exists and self.background_img:
             # Draw background image
@@ -100,56 +90,42 @@ class SaveSlotButton:
                 
     
     def is_clicked(self, pos):
-        """Check if button is clicked."""
+        """Return True if the slot is active and the position is inside it."""
         return self.rect.collidepoint(pos) and self.active
 
+
 class TrashButton:
-    """Custom trash button with hover animation and pointer effects."""
-    
+    """Trash icon button for deleting a save slot."""
+
     def __init__(self, x: int, y: int, width: int, height: int):
-        """
-        Initialize a trash button.
-        Args:
-            x (int): X position (center)
-            y (int): Y position (center)
-            width (int): Width of the button
-            height (int): Height of the button
-        """
+        """Create a trash button centered at the given position."""
         self.x = x
         self.y = y
         self.width = width
         self.height = height
-        self.rect = pygame.Rect(x - width//2, y - height//2, width, height)
-        
-        # Load trash icon animation (2 frames: normal and hover)
+        self.rect = pygame.Rect(x - width // 2, y - height // 2, width, height)
+
         trash_path = os.path.join(os.path.dirname(__file__), "../assets/images/trash.png")
         if os.path.exists(trash_path):
             trash_sheet = pygame.image.load(trash_path).convert_alpha()
-            # Assuming trash.png has 2 frames side by side
             sheet_width = trash_sheet.get_width()
             sheet_height = trash_sheet.get_height()
-            frame_width = sheet_width // 2  # 2 frames
-            
-            # Extract frames
+            frame_width = sheet_width // 2
+
             self.trash_normal = trash_sheet.subsurface(pygame.Rect(0, 0, frame_width, sheet_height))
             self.trash_hover = trash_sheet.subsurface(pygame.Rect(frame_width, 0, frame_width, sheet_height))
-            
-            # Scale frames
             self.trash_normal = pygame.transform.scale(self.trash_normal, (width, height))
             self.trash_hover = pygame.transform.scale(self.trash_hover, (width, height))
         else:
-            # Fallback to colored rectangles
             self.trash_normal = pygame.Surface((width, height))
             self.trash_normal.fill(config.red)
             self.trash_hover = pygame.Surface((width, height))
             self.trash_hover.fill(config.yellow)
-        
-        # Pointer animation (same as button module)
+
         pointer_sheet = os.path.join(os.path.dirname(__file__), "../assets/images/pointer.png")
         self.pointer_anim = Animation(pointer_sheet, frame_width=36, frame_height=44)
         self._load_pointer_animations()
-        
-        # State
+
         self.is_hovering = False
         self.is_pressed = False
         self.active = True
@@ -157,10 +133,9 @@ class TrashButton:
         self.press_timer = 0.0
         self.press_duration = 0.12
         self.was_hovering = False
-    
+
     def _load_pointer_animations(self):
-        """Load pointer animations from the spritesheet."""
-        # Hover state
+        """Set up hover, pressed, and release pointer animations."""
         self.pointer_anim.add_animation(
             "hover",
             row=0,
@@ -169,8 +144,6 @@ class TrashButton:
             speed=0.01,
             loop=False
         )
-        
-        # Pressed state
         self.pointer_anim.add_animation(
             "pressed",
             row=1,
@@ -179,8 +152,6 @@ class TrashButton:
             speed=0.01,
             loop=False
         )
-        
-        # Release state
         self.pointer_anim.add_animation(
             "release",
             row=1,
@@ -189,77 +160,64 @@ class TrashButton:
             speed=0.01,
             loop=False
         )
-    
+
     def update(self, dt: float):
-        """Update button state and animation."""
+        """Update hover state and pointer animation."""
         mouse_pos = pygame.mouse.get_pos()
         self.is_hovering = self.rect.collidepoint(mouse_pos) and self.active
-        
-        # Update pointer animation state
+
         if self.press_timer > 0:
             self.press_timer = max(0.0, self.press_timer - dt)
             new_state = "pressed"
         elif self.is_hovering:
             new_state = "hover"
         else:
-            # Determine if we should play release animation or go to normal
-            if self.was_hovering:
-                new_state = "release"
-            else:
-                new_state = "normal"
-        
-        # Change animation if state changed
+            new_state = "release" if self.was_hovering else "normal"
+
         if new_state != self.current_state:
             self.current_state = new_state
             if new_state in ("pressed", "release", "hover"):
-                # Play animation forward
                 self.pointer_anim.set_animation(new_state, reset=True, reverse=False)
-        
-        # Update tracking for hover state
+
         if self.is_hovering and not self.was_hovering:
             self.was_hovering = True
         elif not self.is_hovering and self.was_hovering and self.current_state == "normal":
             self.was_hovering = False
-        
-        # Update animation
+
         if self.current_state != "normal":
             self.pointer_anim.update(dt)
-    
+
     def draw(self, screen: pygame.Surface):
-        """Draw the trash button with pointer animation when hovering."""
-        # Draw trash icon (frame based on hover state)
+        """Draw the trash icon with pointer animation on hover."""
         if self.is_hovering:
             screen.blit(self.trash_hover, self.rect.topleft)
         else:
             screen.blit(self.trash_normal, self.rect.topleft)
-        
-        # Draw pointers when hovering or pressed
+
         if self.is_hovering or self.press_timer > 0:
-            # Get current pointer frame based on state
             if self.current_state == "normal":
                 pointer_frame = self.pointer_anim.extract_frames(0, 0, 1)[0]
             else:
                 pointer_frame = self.pointer_anim.get_current_frame()
-            
-            # Draw left pointer
+
             left_rect = pointer_frame.get_rect(right=self.rect.left - 10, centery=self.y)
             screen.blit(pointer_frame, left_rect)
-            
-            # Draw right pointer
+
             right_pointer = pygame.transform.flip(pointer_frame, True, False)
             right_rect = right_pointer.get_rect(left=self.rect.right + 10, centery=self.y)
             screen.blit(right_pointer, right_rect)
-    
+
     def is_clicked(self, pos):
-        """Check if button is clicked."""
+        """Return True if active and the position is inside the button."""
         return self.rect.collidepoint(pos) and self.active
-    
+
     def press(self):
-        """Trigger the button press animation."""
+        """Start the press animation."""
         self.press_timer = self.press_duration
 
+
 class SaveFile:
-    """Class to handle saving and loading game state to/from JSON files."""
+    """Manages saving and loading game state across four save slots."""
 
     def __init__(self):
         # Define the 4 save slots
@@ -321,20 +279,16 @@ class SaveFile:
             config.screen_height - 100, 
             "Back", 
             config.white, 
-            config.font_path, 
+            config.title_font_path, 
             button_font_size
         )
 
+        # Pre-load save file border image
+        borders_path = os.path.join(os.path.dirname(__file__), "../assets/images/save_file_border.png")
+        self.borders = self._load_and_scale_image(borders_path, int(377*config.scale_x), int(669*config.scale_y))
+
     def _load_and_scale_image(self, image_path, width, height):
-        """
-        Load and scale an image.
-        Args:
-            image_path (str): Path to the image file.
-            width (int): Target width.
-            height (int): Target height.
-        Returns:
-            pygame.Surface: Scaled image surface.
-        """
+        """Load an image and scale it to the given dimensions."""
         if os.path.exists(image_path):
             image = pygame.image.load(image_path).convert_alpha()
             return pygame.transform.scale(image, (width, height))
@@ -345,11 +299,7 @@ class SaveFile:
             return surface
 
     def create_game_file(self, slot=1):
-        """
-        Creates a new game file with default game state for the specified slot.
-        Args:
-            slot (int): The save slot number (1, 2, 3, or 4).
-        """
+        """Create a new save file with default state in the given slot."""
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return
@@ -377,12 +327,7 @@ class SaveFile:
             print(f"An error occurred while creating the game file: {e}")
 
     def save_game_file(self, game_state, slot=1):
-        """
-        Saves the current game state to a JSON file in the specified slot.
-        Args:
-            game_state (dict): A dictionary containing the current game state.
-            slot (int): The save slot number (1, 2, 3, or 4).
-        """
+        """Write the game state dictionary to the given save slot."""
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return
@@ -397,13 +342,7 @@ class SaveFile:
             print(f"An error occurred while saving the game state: {e}")
     
     def load_game_file(self, slot=1):
-        """
-        Loads the game state from a JSON file in the specified slot.
-        Args:
-            slot (int): The save slot number (1, 2, 3, or 4).
-        Returns:
-            dict: The loaded game state, or None if the file doesn't exist or an error occurs.
-        """
+        """Load and return the game state from the given save slot, or None on failure."""
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return None
@@ -431,11 +370,7 @@ class SaveFile:
             return None
     
     def delete_game_file(self, slot=1):
-        """
-        Deletes the game file in the specified slot.
-        Args:
-            slot (int): The save slot number (1, 2, 3, or 4).
-        """
+        """Delete the save file for the given slot."""
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return
@@ -453,7 +388,7 @@ class SaveFile:
             print(f"An error occurred while deleting the game file: {e}")
     
     def refresh_slot_status(self):
-        """Refresh the cache of save slot statuses by checking all save files."""
+        """Re-scan all save files and update the status cache."""
         self.slot_status_cache.clear()
         for slot_num in [1, 2, 3, 4]:
             filename = self.save_slots[slot_num]
@@ -468,14 +403,7 @@ class SaveFile:
                 self.slot_status_cache[slot_num] = None
 
     def handle_event(self, pos):
-        """
-        Handle Pygame events for save file selection.
-        Args:
-            pos (tuple[int, int]): Mouse position from the click event.
-        Returns:
-            str: 'close' if back button clicked, 'delete_{slot}' if delete button clicked,
-                 'start_{slot}' if save slot selected, or None if no action
-        """
+        """Handle a mouse click on the save file screen. Returns an action string or None."""
         # Check trash buttons first (they have priority)
         for slot_num in [1, 2, 3, 4]:
             if self.trash_buttons[slot_num].is_clicked(pos):
@@ -528,11 +456,7 @@ class SaveFile:
         return None 
 
     def update(self, dt: float):
-        """
-        Update all button states and animations.
-        Args:
-            dt (float): Delta time since last update.
-        """
+        """Update all save slot and trash button animations."""
         # Update all save slot buttons
         for slot_num in [1, 2, 3, 4]:
             self.save_slot_buttons[slot_num].update(dt)
@@ -542,11 +466,7 @@ class SaveFile:
         self.close_button.update(dt)
     
     def draw(self, screen):
-        """
-        Draw the save file selection screen.
-        Args:
-            screen: Pygame screen surface to draw on.
-        """        
+        """Draw the save file selection screen with slot buttons and borders."""        
         # Draw title
         title_text = config.super_title_font.render("Select Save Slot", True, config.white)
         title_rect = title_text.get_rect(center=(config.screen_width/2, int(100 * config.scale_y)))
@@ -573,15 +493,13 @@ class SaveFile:
                 screen.blit(info_text, info_rect)
             # Draw trash button
             self.trash_buttons[slot_num].draw(screen)
-        # Load borders for all save files
-        borders_path = os.path.join(os.path.dirname(__file__), "../assets/images/save_file_border.png")
-        self.borders = self._load_and_scale_image(borders_path, int(377*config.scale_x), int(669*config.scale_y))
+
+        # Draw borders over each save slot
         slot_spacing = int(400 * config.scale_x)
         start_x = int(config.screen_width / 2 - 2 * slot_spacing)
-        start_y = int(187 * config.scale_y) # Need to figure out how to scale the 14 pixel offset
-        #Draw borders
-        for i in range(0,4):
-            screen.blit(self.borders, (start_x + i * slot_spacing , start_y))
+        start_y = int(187 * config.scale_y)
+        for i in range(4):
+            screen.blit(self.borders, (start_x + i * slot_spacing, start_y))
         
         # Draw back button
         self.close_button.draw(screen)

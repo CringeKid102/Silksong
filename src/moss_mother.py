@@ -6,10 +6,10 @@ import config
 
 
 class MossMother:
-    """Boss enemy implementing flying pursuit, curve attack, and stagger behavior."""
+    """Flying boss enemy with pursuit, curve attacks, and stagger phases."""
 
     def __init__(self, x, y, screen_width, screen_height):
-        """Initialize Moss Mother. """
+        """Create the Moss Mother boss at the given position."""
         image_path = os.path.join(os.path.dirname(__file__), "../assets/images/moss_mother.png")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
@@ -31,6 +31,14 @@ class MossMother:
         self.on_ground = False
         self.facing_right = True
 
+        # Arena encounter state
+        self.is_engaged = False
+        self.spawn_top_padding = 48
+        self.attack_lane_margin = 72
+        self.spawn_delay = 3.0
+        self.spawn_delay_timer = 0.0
+        self.has_spawned_in_arena = False
+
         # Flight / gravity control
         self.is_staggered = False
         self.use_gravity = False
@@ -43,15 +51,11 @@ class MossMother:
         self.is_attacking = False
         self.attack_elapsed = 0.0
         self.attack_duration = 0.85
-        
-        start_x = config.screen_width // 2
-        self.world_ground_y = int(config.screen_height * 0.62)
-        base_y = int(self.world_ground_y)
-        self.attack_start = (start_x - 1200, (base_y - 1800) - 200)
-        #self.attack_end = (start_x, (base_y - 1800) - 200)
-        
+
+        self.attack_start = (float(self.rect.centerx), float(self.rect.centery))
+        self.attack_entry_origin = (float(self.rect.centerx), float(self.rect.centery))
         self.attack_target = (0.0, 0.0)
-        self.attack_curve_depth = 200.0
+        self.attack_curve_depth = 180.0
         self.attack_burst_count = 0
         self.attack_burst_max = 3
         self.attack_long_cooldown = 30.0
@@ -60,15 +64,26 @@ class MossMother:
         self.phase_through = False
         self.attack_approach_side = 1
 
+        # Secondary cry attack
+        self.is_crying = False
+        self.cry_duration = 1.0
+        self.cry_timer = 0.0
+        self.cry_cooldown = 60.0
+        self.cry_cooldown_timer = 0.0
+        self._cry_attack_triggered = False
+        self.attack_type_separation = 10.0
+        self.curve_attack_lockout_timer = 0.0
+        self.cry_attack_lockout_timer = 0.0
+
         # Multi-phase attack timing
         self.attack_step = 0
         self.attack_phase_time = 0.0
-        self.attack_dive_duration = 0.25
-        self.attack_vertical_duration = 0.25
+        self.attack_dive_duration = 0.3
+        self.attack_vertical_duration = 0.55
         self.attack_ascent_duration = 0.25
         self.attack_mid = (0.0, 0.0)
         self.attack_impact_end = (0.0, 0.0)
-        self.attack_reposition_target = (start_x, (base_y - 1800) - 200)
+        self.attack_reposition_target = (float(self.rect.centerx), float(self.rect.centery))
 
         # Reposition after each attack
         self.is_repositioning = False
@@ -103,6 +118,47 @@ class MossMother:
         world_x = self.rect.centerx + int(camera_x)
         world_y = self.rect.centery + int(camera_y)
         return world_x, world_y
+
+    def _get_arena_spawn_point(self, arena_rect):
+        """Return the idle spawn position at the top-middle of the arena."""
+        return (
+            int(arena_rect.centerx),
+            int(arena_rect.top + self.rect.height // 2 + self.spawn_top_padding),
+        )
+
+    def _get_attack_lane_points(self, arena_rect):
+        """Return the side and floor lane positions used for the arena sweep attack."""
+        edge_padding = max(self.rect.width // 2 + 24, self.attack_lane_margin)
+        left_x = int(arena_rect.left + edge_padding)
+        right_x = int(arena_rect.right - edge_padding)
+        middle_y = int(arena_rect.centery)
+        floor_y = int(arena_rect.bottom - self.rect.height // 2 - 28)
+        return left_x, right_x, middle_y, floor_y
+
+    def _set_world_center(self, world_x, world_y, camera_x=0, camera_y=0):
+        """Place the boss using world coordinates while keeping its rect in screen space."""
+        self.rect.centerx = int(world_x - camera_x)
+        self.rect.centery = int(world_y - camera_y)
+
+    def start_cry_attack(self):
+        """Begin the cry attack and emit a one-shot trigger for the game to handle hazards."""
+        if self.is_attacking or self.is_crying:
+            return False
+        self.is_crying = True
+        self.cry_timer = self.cry_duration
+        self.cry_cooldown_timer = self.cry_cooldown
+        self._cry_attack_triggered = True
+        self.velocity_x = 0.0
+        self.velocity_y = 0.0
+        self.attack_contact_registered = False
+        self.phase_through = False
+        return True
+
+    def consume_cry_attack_trigger(self):
+        """Return True once when the cry attack begins."""
+        triggered = self._cry_attack_triggered
+        self._cry_attack_triggered = False
+        return triggered
 
     def _resolve_horizontal_collisions(self, collision_rects, camera_x=0, camera_y=0):
         if not collision_rects:
@@ -234,38 +290,40 @@ class MossMother:
         next_world = ((path_node[0] + 0.5) * self.cell_size, (path_node[1] + 0.5) * self.cell_size)
         return next_world
 
-    def _start_curve_attack(self, player_world_rect, camera_x=0, camera_y=0):
+    def _start_curve_attack(self, player_world_rect, arena_rect, camera_x=0, camera_y=0):
+        """Start a three-part arena sweep: half-parabola down, floor dash, then vertical rise."""
+        if arena_rect is None:
+            return
+
         self.is_attacking = True
         self.attack_timer = self.attack_cooldown
         self.attack_step = 0
         self.attack_phase_time = 0.0
         self.attack_contact_registered = False
+        self.phase_through = False
+        self.attack_burst_count = 0
 
-        player_x = player_world_rect.centerx
-        player_y = player_world_rect.centery
+        current_world_x, current_world_y = self._world_position(camera_x=camera_x, camera_y=camera_y)
+        left_x, right_x, middle_y, floor_y = self._get_attack_lane_points(arena_rect)
 
-        # side offset relative to player horizontally
-        side_offset = self.attack_start[0] - player_x
-        if abs(side_offset) < 40:
-            side_offset = 140 if self.attack_approach_side >= 0 else -140
+        if abs(current_world_x - left_x) <= abs(current_world_x - right_x):
+            start_edge_x, end_edge_x = left_x, right_x
+            self.attack_approach_side = -1
+            self.facing_right = True
+        else:
+            start_edge_x, end_edge_x = right_x, left_x
+            self.attack_approach_side = 1
+            self.facing_right = False
 
-        self.attack_approach_side = -1 if side_offset < 0 else 1
+        self.attack_entry_origin = (current_world_x, current_world_y)
+        self.attack_start = (start_edge_x, middle_y)
+        self.attack_mid = ((left_x + right_x) / 2.0, floor_y)
+        self.attack_impact_end = (end_edge_x, floor_y)
+        self.attack_reposition_target = (end_edge_x, middle_y)
+        self.attack_curve_depth = max(0.0, floor_y - middle_y)
 
-        # Dive: same x as start, down toward near player height
-        dive_y = min(player_y - 40, self.attack_start[1] + 120)
-        self.attack_mid = (self.attack_start[0], dive_y)
-
-        # Vertical path through Hornet to opponent side x (mirror relative to player)
-        target_x = player_x - side_offset
-        self.attack_impact_end = (target_x, self.attack_start[1])
-
-        # Ascend path, just above the opponent side for next attack
-        #self.attack_reposition_target = (target_x, player_y - 220)
-
-        self.attack_burst_count += 1
-        if self.attack_burst_count >= self.attack_burst_max:
-            self.attack_long_cooldown_timer = self.attack_long_cooldown
-            self.attack_burst_count = 0
+        # Begin the attack already aligned at the nearest edge-middle point.
+        self._set_world_center(self.attack_start[0], self.attack_start[1], camera_x=camera_x, camera_y=camera_y)
     def _end_attack(self, player_world_rect):
         self.is_attacking = False
         self.attack_elapsed = 0.0
@@ -288,58 +346,15 @@ class MossMother:
 
         self.attack_contact_registered = False
 
-    def _update_curve_attack(self, dt, player_world_rect=None, camera_x=0, camera_y=0, collision_rects=None):
-        
-        '''
-        base_y = int(self.world_ground_y)
-        start_x = config.screen_width // 2
-        self.ground_colliders = [
-            # Main ground
-            pygame.Rect(-200000, base_y, 400000, 2000),
-            # Low platform for ledge climb testing (right of start)
-            pygame.Rect(start_x + 400, base_y - 220, 250, 10),
-            # Wall jump corridor - left wall
-            pygame.Rect(start_x + 750, base_y - 3000, 50, 3000),
-            pygame.Rect(start_x, base_y - 1500, 550, 10),
-            pygame.Rect(start_x - 1200, base_y - 1800, 1200, 10),
-        ]
-        '''
-        
+    def _update_curve_attack(self, dt, player_world_rect=None, camera_x=0, camera_y=0, collision_rects=None, arena_rect=None):
+        """Advance the three-part sweep: half-parabola down, horizontal floor run, then vertical rise."""
+        if arena_rect is None:
+            self.is_attacking = False
+            return
 
-        
         self.attack_phase_time += dt
 
-        if self.attack_step == 0:
-            # Dive from start to mid.
-            t = min(1.0, self.attack_phase_time / self.attack_dive_duration)
-
-
-            sx, sy = self.attack_start #make this a constant
-            mx, my = self.attack_mid #make this a constant
-            x = sx + (mx - sx) * t
-            y = sy + (my - sy) * t + (self.attack_curve_depth * (t ** 2) * (1 - t))
-            
-            
-            self.rect.centerx = int(x - camera_x)
-            self.rect.centery = int(y - camera_y)
-            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
-            self._resolve_vertical_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
-            if t >= 1.0:
-                self.attack_step = 1
-                self.attack_phase_time = 0.0
-
-        elif self.attack_step == 1:
-            # Straight attack to mirrored side (through Hornet)
-            t = min(1.0, self.attack_phase_time / self.attack_vertical_duration)
-            mx, my = self.attack_mid
-            ix, iy = self.attack_impact_end
-            x = mx + (ix - mx) * t
-            y = my + (iy - my) * t
-            self.rect.centerx = int(x - camera_x)
-            self.rect.centery = int(y - camera_y)
-            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
-            self._resolve_vertical_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
-
+        def register_contact_once():
             if player_world_rect and not self.attack_contact_registered:
                 world_hitbox = self.rect.copy()
                 world_hitbox.x += int(camera_x)
@@ -348,28 +363,75 @@ class MossMother:
                     self.attack_contact_registered = True
                     self.phase_through = True
 
+        if self.attack_step == 0:
+            # Part 1: half open-up parabola from edge-middle down to the arena floor lane.
+            t = min(1.0, self.attack_phase_time / self.attack_dive_duration)
+            sx, sy = self.attack_start
+            mx, my = self.attack_mid
+            x = sx + (mx - sx) * t
+            y = my - (my - sy) * ((1.0 - t) ** 2)
+            self._set_world_center(x, y, camera_x=camera_x, camera_y=camera_y)
+            self.facing_right = mx >= sx
+            register_contact_once()
+
+            if t >= 1.0:
+                self.attack_step = 1
+                self.attack_phase_time = 0.0
+                self.attack_contact_registered = False
+                self.phase_through = False
+
+        elif self.attack_step == 1:
+            # Part 2: move straight horizontally near the arena floor.
+            t = min(1.0, self.attack_phase_time / self.attack_vertical_duration)
+            mx, my = self.attack_mid
+            ex, ey = self.attack_impact_end
+            x = mx + (ex - mx) * t
+            y = my
+            self._set_world_center(x, y, camera_x=camera_x, camera_y=camera_y)
+            self.facing_right = ex >= mx
+            register_contact_once()
+
             if t >= 1.0:
                 self.attack_step = 2
-                self.attack_phase_time = 0.0        
-        
+                self.attack_phase_time = 0.0
+                self.attack_contact_registered = False
+                self.phase_through = False
 
-        elif self.attack_step == 2:          
-            # Ascent diagonally to next attack starting point on other side.
+        elif self.attack_step == 2:
+            # Part 3: move vertically up to the opposite edge-middle point.
             t = min(1.0, self.attack_phase_time / self.attack_ascent_duration)
-            ix, iy = self.attack_impact_end
-            tx, ty = self.attack_reposition_target
-            x = ix + (tx - ix) * t
-            y = iy + (ty - iy) * t - (self.attack_curve_depth /2.0 * (1 - (2 * (t - 0.5)) ** 2))
-            self.rect.centerx = int(x - camera_x)
-            self.rect.centery = int(y - camera_y)
-            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
-            self._resolve_vertical_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
+            ex, ey = self.attack_impact_end
+            rx, ry = self.attack_reposition_target
+            x = ex
+            y = ey + (ry - ey) * t
+            self._set_world_center(x, y, camera_x=camera_x, camera_y=camera_y)
+            self.facing_right = rx >= self.attack_start[0]
+            register_contact_once()
 
             if t >= 1.0:
-                self.attack_step = 0
-                self.attack_phase_time = 0.0
-                self.is_attacking = False
-                self.attack_timer = 0.0
+                self.attack_burst_count += 1
+                if self.attack_burst_count >= self.attack_burst_max:
+                    self.attack_step = 0
+                    self.attack_phase_time = 0.0
+                    self.is_attacking = False
+                    self.attack_timer = 0.0
+                    self.attack_long_cooldown_timer = self.attack_long_cooldown
+                    self.cry_attack_lockout_timer = max(self.cry_attack_lockout_timer, self.attack_type_separation)
+                    self.attack_contact_registered = False
+                    self.phase_through = False
+                else:
+                    previous_start_x = self.attack_start[0]
+                    next_start_x = self.attack_reposition_target[0]
+                    middle_y = self.attack_reposition_target[1]
+                    floor_y = self.attack_impact_end[1]
+                    self.attack_start = (next_start_x, middle_y)
+                    self.attack_mid = ((next_start_x + previous_start_x) / 2.0, floor_y)
+                    self.attack_impact_end = (previous_start_x, floor_y)
+                    self.attack_reposition_target = (previous_start_x, middle_y)
+                    self.attack_phase_time = 0.0
+                    self.attack_step = 0
+                    self.attack_contact_registered = False
+                    self.phase_through = False
             
 
     def _update_reposition(self, dt):
@@ -474,16 +536,17 @@ class MossMother:
 
         return landed
 
-    def take_damage(self, damage, knockback_direction=0):
+    def take_damage(self, damage, knockback_direction=0, apply_knockback=True):
         if damage <= 0:
             return
 
         self.health = max(0, self.health - damage)
 
-        if knockback_direction < 0:
-            self.knockback_velocity_x = -self.knockback_strength
-        elif knockback_direction > 0:
-            self.knockback_velocity_x = self.knockback_strength
+        if apply_knockback and not self.is_attacking:
+            if knockback_direction < 0:
+                self.knockback_velocity_x = -self.knockback_strength
+            elif knockback_direction > 0:
+                self.knockback_velocity_x = self.knockback_strength
 
         if self.next_stagger_idx < len(self.stagger_thresholds) and self.health <= self.stagger_thresholds[self.next_stagger_idx]:
             self.next_stagger_idx += 1
@@ -504,11 +567,25 @@ class MossMother:
         self.attack_elapsed = 0.0
         self.attack_burst_count = 0
         self.attack_long_cooldown_timer = 0.0
+        self.attack_step = 0
+        self.attack_phase_time = 0.0
+        self.attack_contact_registered = False
+        self.phase_through = False
+        self.is_repositioning = False
+        self.is_engaged = False
+        self.spawn_delay_timer = 0.0
+        self.has_spawned_in_arena = False
+        self.is_crying = False
+        self.cry_timer = 0.0
+        self.cry_cooldown_timer = 0.0
+        self._cry_attack_triggered = False
+        self.curve_attack_lockout_timer = 0.0
+        self.cry_attack_lockout_timer = 0.0
         self.next_stagger_idx = 0
         self.stagger_count = 0
         self.health = self.max_health
 
-    def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0, player_world_rect=None):
+    def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0, player_world_rect=None, arena_rect=None):
         self.rect.x -= int(camera_dx)
         self.rect.y -= int(camera_dy)
 
@@ -519,6 +596,36 @@ class MossMother:
 
         if self.attack_timer > 0.0:
             self.attack_timer = max(0.0, self.attack_timer - dt)
+        if self.cry_cooldown_timer > 0.0:
+            self.cry_cooldown_timer = max(0.0, self.cry_cooldown_timer - dt)
+        if self.curve_attack_lockout_timer > 0.0:
+            self.curve_attack_lockout_timer = max(0.0, self.curve_attack_lockout_timer - dt)
+        if self.cry_attack_lockout_timer > 0.0:
+            self.cry_attack_lockout_timer = max(0.0, self.cry_attack_lockout_timer - dt)
+
+        player_in_arena = bool(arena_rect and player_world_rect and arena_rect.colliderect(player_world_rect))
+
+        if arena_rect is not None and not self.is_engaged:
+            if player_in_arena and not self.has_spawned_in_arena:
+                self.spawn_delay_timer += dt
+            elif not player_in_arena and not self.has_spawned_in_arena:
+                self.spawn_delay_timer = 0.0
+
+            if not self.has_spawned_in_arena:
+                if self.spawn_delay_timer < self.spawn_delay:
+                    return
+                spawn_x, spawn_y = self._get_arena_spawn_point(arena_rect)
+                self._set_world_center(spawn_x, spawn_y, camera_x=camera_x, camera_y=camera_y)
+                self.velocity_x = 0.0
+                self.velocity_y = 0.0
+                self.on_ground = False
+                self.has_spawned_in_arena = True
+
+            if not player_in_arena:
+                return
+
+            self.is_engaged = True
+            self.attack_timer = min(self.attack_timer, 0.35)
 
         if self.is_staggered:
             landed = self._apply_gravity_and_collision(dt, collision_rects, camera_x=camera_x, camera_y=camera_y)
@@ -534,36 +641,69 @@ class MossMother:
         if self.attack_long_cooldown_timer > 0.0:
             self.attack_long_cooldown_timer = max(0.0, self.attack_long_cooldown_timer - dt)
 
+        if self.is_crying:
+            self.velocity_x = 0.0
+            self.velocity_y = 0.0
+            self.cry_timer = max(0.0, self.cry_timer - dt)
+            if self.cry_timer <= 0.0:
+                self.is_crying = False
+                self.curve_attack_lockout_timer = max(self.curve_attack_lockout_timer, self.attack_type_separation)
+            return
+
         # Forced gravity flag may be enabled during stagger only.
         if not self.use_gravity:
-            # Flying behavior
-            if self.is_attacking:
-                self._update_curve_attack(dt, player_world_rect=player_world_rect, camera_x=camera_x, camera_y=camera_y, collision_rects=collision_rects)
-                return
-
-            if player_world_rect is not None:
-                world_x = self.rect.centerx + int(camera_x)
-                world_y = self.rect.centery + int(camera_y)
-                diff_x = player_world_rect.centerx - world_x
-                diff_y = player_world_rect.centery - world_y
-
-                can_attack = (self.attack_timer <= 0.0 and self.attack_long_cooldown_timer <= 0.0)
-                if abs(diff_x) <= self.attack_range_x and abs(diff_y) <= self.attack_range_y and can_attack:
-                    self._start_curve_attack(player_world_rect, camera_x=camera_x, camera_y=camera_y)
+            if (
+                player_world_rect is not None
+                and player_in_arena
+                and self.cry_cooldown_timer <= 0.0
+                and self.cry_attack_lockout_timer <= 0.0
+                and not self.is_attacking
+            ):
+                if self.start_cry_attack():
                     return
 
-            self._update_flight_path(dt, player_world_rect, collision_rects, camera_x=camera_x, camera_y=camera_y, min_x=min_x, max_x=max_x)
+            if self.is_attacking:
+                self._update_curve_attack(
+                    dt,
+                    player_world_rect=player_world_rect,
+                    camera_x=camera_x,
+                    camera_y=camera_y,
+                    collision_rects=collision_rects,
+                    arena_rect=arena_rect,
+                )
+                return
 
-            # add knockback to flight.
-            self.rect.x += int(self.knockback_velocity_x * dt)
-            self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
+            if player_world_rect is not None and player_in_arena:
+                can_attack = (
+                    self.attack_timer <= 0.0
+                    and self.attack_long_cooldown_timer <= 0.0
+                    and self.curve_attack_lockout_timer <= 0.0
+                    and not self.is_crying
+                )
+                if can_attack:
+                    self._start_curve_attack(player_world_rect, arena_rect, camera_x=camera_x, camera_y=camera_y)
+                    return
 
-            # Keep the boss in patrol bounds like MossGrub
-            if self.rect.centerx >= max_x:
-                self.facing_right = False
-            elif self.rect.centerx <= min_x:
-                self.facing_right = True
+                self._update_flight_path(dt, player_world_rect, collision_rects, camera_x=camera_x, camera_y=camera_y, min_x=min_x, max_x=max_x)
 
+                # Add knockback to flight.
+                self.rect.x += int(self.knockback_velocity_x * dt)
+                self._resolve_horizontal_collisions(collision_rects, camera_x=camera_x, camera_y=camera_y)
+
+                if arena_rect is not None:
+                    world_x, world_y = self._world_position(camera_x=camera_x, camera_y=camera_y)
+                    left_x, right_x, _, _ = self._get_attack_lane_points(arena_rect)
+                    clamped_x = max(left_x, min(right_x, world_x))
+                    clamped_y = max(arena_rect.top + self.rect.height // 2, min(arena_rect.bottom - self.rect.height // 2, world_y))
+                    self._set_world_center(clamped_x, clamped_y, camera_x=camera_x, camera_y=camera_y)
+
+                if self.rect.centerx >= max_x:
+                    self.facing_right = False
+                elif self.rect.centerx <= min_x:
+                    self.facing_right = True
+            elif arena_rect is not None:
+                spawn_x, spawn_y = self._get_arena_spawn_point(arena_rect)
+                self._set_world_center(spawn_x, spawn_y, camera_x=camera_x, camera_y=camera_y)
         else:
             # Should not happen outside stagger state, but keep safe fallback.
             self._apply_gravity_and_collision(dt, collision_rects, camera_x=camera_x, camera_y=camera_y)
