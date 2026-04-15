@@ -2,6 +2,8 @@ import pygame
 import random
 import os
 import sys
+import threading
+import cv2
 import config
 from animation import Animation
 from audio import AudioManager
@@ -19,14 +21,94 @@ from moss_mother import MossMother
 # Initialize pygame
 pygame.init()
 
+
+class ThreadedVideoCapture:
+    """Prefetch video frames on a worker thread so the game loop never blocks on OpenCV I/O."""
+
+    def __init__(self, path):
+        self.capture = cv2.VideoCapture(path)
+        self._lock = threading.Lock()
+        self._stop_event = threading.Event()
+        self._request_frame = threading.Event()
+        self._frame_ready = threading.Event()
+        self._latest_frame = None
+        self._ended = False
+        self._released = False
+        self._thread = None
+        self.fps = 30.0
+
+        if self.capture.isOpened():
+            self.capture.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+            detected_fps = float(self.capture.get(cv2.CAP_PROP_FPS) or 0.0)
+            if detected_fps > 1.0:
+                self.fps = detected_fps
+
+            self._request_frame.set()
+            self._thread = threading.Thread(target=self._reader_loop, daemon=True)
+            self._thread.start()
+
+    def _reader_loop(self):
+        while not self._stop_event.is_set():
+            if not self._request_frame.wait(0.1):
+                continue
+            self._request_frame.clear()
+
+            ok, frame = self.capture.read()
+            with self._lock:
+                if ok and frame is not None:
+                    self._latest_frame = frame
+                else:
+                    self._latest_frame = None
+                    self._ended = True
+                self._frame_ready.set()
+
+            if not ok or frame is None:
+                break
+
+    def isOpened(self):
+        return self.capture is not None and self.capture.isOpened() and not self._released
+
+    def read(self, timeout=0.0):
+        """Return `(frame, ended)` where `frame=None` means not ready yet or stream ended."""
+        if not self.isOpened():
+            return None, True
+
+        if not self._frame_ready.wait(timeout):
+            return None, False
+
+        with self._lock:
+            frame = None if self._latest_frame is None else self._latest_frame.copy()
+            ended = self._ended
+            self._latest_frame = None
+            self._frame_ready.clear()
+            if not ended and not self._released:
+                self._request_frame.set()
+
+        return frame, ended
+
+    def release(self):
+        if self._released:
+            return
+
+        self._released = True
+        self._stop_event.set()
+        self._request_frame.set()
+
+        if self._thread is not None and self._thread.is_alive():
+            self._thread.join(timeout=0.5)
+
+        if self.capture is not None:
+            self.capture.release()
+
+
 class Silksong:
 
     # Class-level image cache to avoid reloading
     _image_cache = {}
     
     @classmethod
-    def _load_and_scale_image(cls, path, width, height):
-        """Load and scale an image, using cache to avoid reloading."""
+    def _load_and_scale_image(cls, path, width=None, height=None):
+        """Load an image, optionally scaling it, while using cache to avoid reloading."""
         cache_key = (path, width, height)
         if cache_key not in cls._image_cache:
             img = pygame.image.load(path)
@@ -34,7 +116,9 @@ class Silksong:
                 img = img.convert_alpha()
             else:
                 img = img.convert()
-            cls._image_cache[cache_key] = pygame.transform.scale(img, (width, height))
+            if width is not None and height is not None:
+                img = pygame.transform.scale(img, (width, height))
+            cls._image_cache[cache_key] = img
         return cls._image_cache[cache_key]
 
     def __init__(self):
@@ -46,6 +130,14 @@ class Silksong:
         self.running = True
         self.state = "title screen"
         self.clock = pygame.time.Clock()
+        self.intro_video_path = os.path.join(os.path.dirname(__file__), "../assets/video/intro_cinematic.mp4")
+        self.cutscene_capture = None
+        self.cutscene_surface = None
+        self.cutscene_rect = None
+        self.cutscene_target_size = None
+        self.cutscene_fps = 30.0
+        self.cutscene_frame_timer = 0.0
+        self.cutscene_next_state = None
         
         # Load and scale title image using cache
         title_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title.png")
@@ -55,25 +147,32 @@ class Silksong:
         title_needle_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0003_hornet_needle.png")
         title_needle = self._load_and_scale_image(title_needle_path, int(186*config.scale_x), int(864*config.scale_y))
         self.title_needle = title_needle
-
-        
+    
         # Load and scale title element (pin)
         title_pin_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0002_lace_pin.png")
         title_pin_scaled = self._load_and_scale_image(title_pin_path, int(94*config.scale_x), int(613*config.scale_y))
         self.title_pin = pygame.transform.rotate(title_pin_scaled, -5)  # Rotate 15 degrees to the right (negative = clockwise)
 
+    
+        
+        
         # Load and scale title element (boulder)
         title_boulder_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0000_bone_cliff_01.png")
         self.title_boulder = self._load_and_scale_image(title_boulder_path, int(552*config.scale_x), int(236*config.scale_y))
 
-        # Load and scale title element (pin)
-        #title_pin = pygame.image.load(os.path.join(os.path.dirname(__file__), ""))
-        
-
         # Load and scale background image using cache
         background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title_screen_bg.jpg")
         self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
+        
+        game_background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/game_bg.png")
+        self.game_background_image = self._load_and_scale_image(
+            game_background_img_path,
+            int(config.screen_width * 1.3),
+            int(config.screen_height * 1),
+        )
 
+        arena_background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/arena_bg.png")
+        self.arena_background_image = self._load_and_scale_image(arena_background_img_path, config.screen_width, config.screen_height)
         # Load custom cursor image
         self.cursor_image = None
         self.cursor_hotspot = (0, 0)
@@ -182,13 +281,15 @@ class Silksong:
         start_x = config.screen_width // 2
 
         # Boss arena sized to exactly one camera view.
+
+        
         arena_width = int(config.screen_width - 160)
         arena_height = int(config.screen_height - 80)
         arena_floor_y = base_y - 1800
         arena_ceiling_y = arena_floor_y - arena_height
         arena_left = start_x - arena_width
         arena_right = start_x
-        wall_thickness = 10
+        wall_thickness = 30
         self.boss_arena_rect = pygame.Rect(arena_left, arena_ceiling_y, arena_width, arena_height)
         self.boss_arena_camera = (
             int(self.boss_arena_rect.centerx - (config.screen_width / 2)),
@@ -199,10 +300,13 @@ class Silksong:
             # Main ground
             pygame.Rect(-200000, base_y, 400000, 2000),
             # Low platform for ledge climb testing (right of start)
-            pygame.Rect(start_x + 400, base_y - 220, 250, 10),
+            pygame.Rect(start_x + 400, base_y - 220, 400, 220),
             # Wall jump corridor - left wall
             pygame.Rect(start_x + 750, base_y - 3000, 50, 3000),
-            pygame.Rect(start_x, base_y - 1500, 550, 10),
+            pygame.Rect(start_x - 100, base_y - 1800, 50, 1800),
+            pygame.Rect(start_x - 50, base_y - 1800, 50, 300),
+            pygame.Rect(start_x - 100, base_y - 1500, 650, 10),
+            pygame.Rect(start_x, base_y - 3000, 750, 1000),
             # Boss arena: one full screen wide by one full screen tall
             pygame.Rect(arena_left, arena_floor_y, arena_width, wall_thickness),
             pygame.Rect(arena_left, arena_ceiling_y, arena_width, wall_thickness),
@@ -218,6 +322,7 @@ class Silksong:
         """Lock the camera to the arena center while Hornet is inside the boss room."""
         if not self.player or not self.boss_arena_rect or not self.boss_arena_camera:
             self.camera_locked_to_arena = False
+            
             return
 
         should_lock = self.boss_arena_rect.colliderect(player_world_rect)
@@ -515,9 +620,105 @@ class Silksong:
     
     def update_save_files(self, dt):
         self.save_file.update(dt)
+
+    def _release_cutscene_resources(self):
+        """Release the intro cutscene resources."""
+        if self.cutscene_capture is not None:
+            self.cutscene_capture.release()
+            self.cutscene_capture = None
+        self.cutscene_surface = None
+        self.cutscene_rect = None
+        self.cutscene_target_size = None
+        self.cutscene_fps = 30.0
+        self.cutscene_frame_timer = 0.0
+
+    def _cache_cutscene_frame(self, frame):
+        """Convert an OpenCV frame into a screen-ready pygame surface."""
+        rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+        frame_h, frame_w = rgb_frame.shape[:2]
+
+        if self.cutscene_target_size is None:
+            scale = min(config.screen_width / frame_w, config.screen_height / frame_h)
+            scaled_width = max(1, int(frame_w * scale))
+            scaled_height = max(1, int(frame_h * scale))
+            self.cutscene_target_size = (scaled_width, scaled_height)
+
+        if (frame_w, frame_h) != self.cutscene_target_size:
+            rgb_frame = cv2.resize(rgb_frame, self.cutscene_target_size, interpolation=cv2.INTER_AREA)
+            frame_w, frame_h = self.cutscene_target_size
+
+        self.cutscene_surface = pygame.image.frombuffer(
+            rgb_frame.tobytes(),
+            (frame_w, frame_h),
+            "RGB"
+        ).convert()
+        self.cutscene_rect = self.cutscene_surface.get_rect(center=(config.screen_width // 2, config.screen_height // 2))
+
+    def _read_next_cutscene_frame(self, wait_timeout=0.0):
+        """Read the next prefetched frame of the intro cinematic into the draw cache."""
+        if self.cutscene_capture is None or not self.cutscene_capture.isOpened():
+            return False
+
+        frame, ended = self.cutscene_capture.read(timeout=wait_timeout)
+        if frame is None:
+            return False if ended else None
+
+        self._cache_cutscene_frame(frame)
+        return True
+
+    def _finish_cutscene(self):
+        """Close the intro cinematic and continue into the queued state."""
+        next_state = self.cutscene_next_state or "game"
+        self.cutscene_next_state = None
+        self._release_cutscene_resources()
+        if self.state != next_state:
+            self.change_state(next_state)
+
+    def _start_intro_cutscene(self, next_state="game"):
+        """Open the intro cinematic before gameplay begins."""
+        self.cutscene_next_state = next_state
+        self._release_cutscene_resources()
+
+        if not os.path.exists(self.intro_video_path):
+            self.change_state(next_state)
+            return
+
+        self.cutscene_capture = ThreadedVideoCapture(self.intro_video_path)
+        if not self.cutscene_capture.isOpened():
+            self._release_cutscene_resources()
+            self.change_state(next_state)
+            return
+
+        self.cutscene_fps = max(1.0, float(getattr(self.cutscene_capture, "fps", 30.0)))
+
+        first_frame_status = self._read_next_cutscene_frame(wait_timeout=0.35)
+        if first_frame_status is False:
+            self._finish_cutscene()
+            return
+
+        self.change_state("cutscene")
     
     def update_cutscene(self, dt):
-        pass
+        """Advance the intro cinematic and transition into gameplay when it ends."""
+        if self.transition_manager.active:
+            return
+
+        if self.cutscene_capture is None or not self.cutscene_capture.isOpened():
+            self._finish_cutscene()
+            return
+
+        frame_duration = 1.0 / max(1.0, self.cutscene_fps)
+        self.cutscene_frame_timer += dt
+
+        while self.cutscene_frame_timer >= frame_duration:
+            frame_status = self._read_next_cutscene_frame()
+            if frame_status is False:
+                self._finish_cutscene()
+                return
+            if frame_status is None:
+                break
+
+            self.cutscene_frame_timer -= frame_duration
 
     def update_game(self, dt):
         self.game_back_button.update(dt)
@@ -878,7 +1079,15 @@ class Silksong:
         self.save_file.draw(self.screen)
     
     def draw_cutscene(self):
-        self.screen.blit(self.background_image, (0, 0))
+        self.screen.fill((0, 0, 0))
+
+        if self.cutscene_surface and self.cutscene_rect:
+            self.screen.blit(self.cutscene_surface, self.cutscene_rect)
+
+        hint_font = config.get_font(int(24 * config.scale_y))
+        skip_text = hint_font.render("Press any key or click to skip", True, (220, 220, 220))
+        skip_rect = skip_text.get_rect(midbottom=(config.screen_width // 2, config.screen_height - int(24 * config.scale_y)))
+        self.screen.blit(skip_text, skip_rect)
     
     def draw_game(self):
         # Draw background (could add parallax later)
@@ -886,17 +1095,27 @@ class Silksong:
         look_y = self.player.camera_look_y if self.player else 0
         shake_x, shake_y = self.camera_shake_offset
 
-        bg_width, bg_height = self.background_image.get_size()
-        bg_x = int(-self.camera_x * 0.5)
-        bg_y = int(-self.camera_y * 0.5 - look_y * 0.5)
+        bg_width, bg_height = self.game_background_image.get_size()
+        bg_x = int((config.screen_width - bg_width) / 2 - self.camera_x * 0.18 + shake_x)
+        bg_y = int((config.screen_height - bg_height) / 2 - self.camera_y * 0.12 - look_y * 0.35 + shake_y)
 
-        # Tile background to prevent side-edge artifacts when camera offsets shift
-        base_x = (bg_x % bg_width) - bg_width
-        base_y = (bg_y % bg_height) - bg_height
-        for x_offset in (0, bg_width, bg_width * 2):
-            for y_offset in (0, bg_height, bg_height * 2):
-                self.screen.blit(self.background_image, (base_x + x_offset + shake_x, base_y + y_offset + shake_y))
+        # Draw one oversized background image and clamp it so it never tiles.
+        bg_x = min(0, max(config.screen_width - bg_width, bg_x))
+        bg_y = min(0, max(config.screen_height - bg_height, bg_y))
+        self.screen.blit(self.game_background_image, (bg_x, bg_y))
         
+        # Draw arena background
+        if self.boss_arena_rect and getattr(self,"arena_background_image", None):
+            arena_screen_x = int(self.boss_arena_rect.left - self.camera_x + shake_x)
+            arena_screen_y = int(self.boss_arena_rect.top - self.camera_y - look_y + shake_y)
+            arena_w = int(self.boss_arena_rect.width)
+            arena_h = int(self.boss_arena_rect.height)
+            arena_surf = pygame.transform.scale(self.arena_background_image, (arena_w, arena_h))
+            self.screen.blit(arena_surf, (arena_screen_x, arena_screen_y))
+        
+
+
+
         # Draw ground and platforms
         if self.ground_colliders:
             for cr in self.ground_colliders:
@@ -912,12 +1131,11 @@ class Silksong:
                     platform_rect = pygame.Rect(screen_x, screen_y, cr.width, cr.height)
                     pygame.draw.rect(self.screen, (100, 100, 120), platform_rect)
                     pygame.draw.rect(self.screen, (200, 200, 220), platform_rect, 2)
-        
+
         # Draw player (offset by look_y so player moves with the world)
         if self.player:
             self.player.bench.draw(self.screen, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y, screen_offset=(shake_x, shake_y))
             self.player.draw(self.screen, look_y_offset=-look_y, screen_offset=(shake_x, shake_y))
-
             # Debug: highlight Hornet collision rect.
             player_debug_rect = self.player.rect.copy()
             player_debug_rect.x += int(shake_x)
@@ -1068,10 +1286,18 @@ class Silksong:
 
             # Temporary: allow quitting with ESC from any state
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
+                if self.state == "cutscene":
+                    self._finish_cutscene()
+                    continue
                 self.running = False
             
             # Skip input handling during transitions
             if self.transition_manager.active:
+                continue
+
+            if self.state == "cutscene":
+                if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
+                    self._finish_cutscene()
                 continue
             
             # Handle settings menu events
@@ -1243,8 +1469,8 @@ class Silksong:
                         # Persist state immediately so schema stays up-to-date
                         self.save_current_game_state(force=True)
 
-                        # Start game
-                        self.change_state("game")
+                        # Start intro cutscene, then enter gameplay
+                        self._start_intro_cutscene(next_state="game")
                     # Delete actions are handled within save_file.handle_event
 
                 elif self.state == "game":
@@ -1263,6 +1489,7 @@ class Silksong:
 
         # Save one last time before exiting
         self.save_current_game_state(force=True)
+        self._release_cutscene_resources()
         
         pygame.quit()
  
