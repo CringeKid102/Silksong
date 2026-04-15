@@ -303,10 +303,16 @@ class Silksong:
             pygame.Rect(start_x + 400, base_y - 220, 400, 220),
             # Wall jump corridor - left wall
             pygame.Rect(start_x + 750, base_y - 3000, 50, 3000),
-            pygame.Rect(start_x - 100, base_y - 1800, 50, 1800),
+            pygame.Rect(start_x - 1400, base_y - 1800, 50, 1800),
             pygame.Rect(start_x - 50, base_y - 1800, 50, 300),
-            pygame.Rect(start_x - 100, base_y - 1500, 650, 10),
+            pygame.Rect(start_x - 900, base_y - 1500, 1450, 20),
             pygame.Rect(start_x, base_y - 3000, 750, 1000),
+            pygame.Rect(start_x - 200, base_y - 100, 100, 20),
+            pygame.Rect(start_x - 500, base_y - 300, 100, 20),
+            pygame.Rect(start_x - 900, base_y - 1000, 100, 1000),
+            pygame.Rect(start_x - 100, base_y - 950, 500, 20),
+            pygame.Rect(start_x - 650, base_y - 1050, 300, 20),
+            pygame.Rect(start_x - 1200, base_y - 1200, 100, 20),
             # Boss arena: one full screen wide by one full screen tall
             pygame.Rect(arena_left, arena_floor_y, arena_width, wall_thickness),
             pygame.Rect(arena_left, arena_ceiling_y, arena_width, wall_thickness),

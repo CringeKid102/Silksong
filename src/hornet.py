@@ -3,7 +3,7 @@ import os
 from audio import AudioManager
 from animation import Animation
 from bench import Bench
-
+import config
 class Hornet:
     """Player character with movement, combat, and platforming."""
     
@@ -429,9 +429,18 @@ class Hornet:
                 self.audio_manager.play_sfx("hornet_heal")
             except Exception:
                 pass  # Skip if sound doesn't exist
-            
+    
+    def draw_health_bar(self, screen, x, y):
+        """
+        Draw the hornet's health bar at the given screen position. 
+        It should stay there regardless of the camera position. 
+        Each health point (there are 5) is represented by one mask.png icon, and an empty slot is represented by a back square for now as a placeholder.
+        
+        """
+
     def draw_silk_bar(self):
         """Draw the silk resource bar on screen. Placeholder for future use."""
+
         pass
 
     def take_damage(self, damage, knockback_direction=0):
@@ -756,6 +765,12 @@ class Hornet:
             screen.blit(self.image_flipped, draw_rect)
         else:
             screen.blit(self.image, draw_rect)      
+    
+    #draw instructions on screen
+    """font = config.font_path
+    instructions_surface = font.render("A,D for moving left and right", True, (255,255,255))
+    screen.blit(instructions_surface, (100,100))"""
+
     
     def reset_position(self, x, y):
         """Reset Hornet to the given position and clear all movement/combat state."""
