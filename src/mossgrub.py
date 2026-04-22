@@ -1,20 +1,31 @@
 import pygame
-import os
+from animation import Animation
 from audio import AudioManager
+from asset_paths import resolve_image_path
 
 class MossGrub:
     """Basic patrol enemy that walks back and forth."""
+
+    FRAME_WIDTH = 128
+    FRAME_HEIGHT = 101
+    ANIMATION_SCALE = 0.45
     
     def __init__(self, x, y, screen_width, screen_height):
         """Create a MossGrub at the given position."""
-        # Load and scale enemy image
-        image_path = os.path.join(os.path.dirname(__file__), "../assets/images/mossgrub.png")
-        self.image = pygame.image.load(image_path).convert_alpha()
-        source_width, source_height = self.image.get_size()
-        scale_factor = 0.45
-        scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
-        self.image = pygame.transform.scale(self.image, scaled_size)
-        self.image_flipped = pygame.transform.flip(self.image, True, False)
+        image_path = resolve_image_path("spritesheet/enemy/mossgrub.png")
+        self.animation = Animation(
+            image_path,
+            frame_width=self.FRAME_WIDTH,
+            frame_height=self.FRAME_HEIGHT,
+            scale=self.ANIMATION_SCALE,
+        )
+        self._load_mossgrub_animation()
+        self.animations = self.animation.animations
+        self.display_facing_right = False
+        self.turn_target_facing_right = False
+        self.current_animation_name = "move_left"
+        self.animation.set_animation(self.current_animation_name)
+        self.image = self.animation.get_current_frame()
         self.rect = self.image.get_rect()
         self.rect.x = x
         self.rect.y = y
@@ -38,6 +49,10 @@ class MossGrub:
         
         # Facing direction (for future sprite flipping)
         self.facing_right = 1
+        self.is_dying = False
+        self.death_landed = False
+        self.death_finished = False
+        self.death_launch_velocity_y = -620.0
         
         # Audio manager instance
         self.audio_manager = AudioManager()
@@ -53,8 +68,75 @@ class MossGrub:
         self._frac_x = 0.0
     
     def _load_mossgrub_animation(self):
-        """Load mossgrub animations from spritesheet. Placeholder for future use."""
-        pass
+        """Load mossgrub animations from spritesheet."""
+        self.animation.add_animation("turn_right", row=0, start_col=0, num_frames=3, speed=0.08, loop=False)
+        self.animation.add_animation("turn_left", row=0, start_col=0, num_frames=3, flip_x=True, speed=0.08, loop=False)
+        self.animation.add_animation("move_right", row=0, start_col=3, num_frames=5, speed=0.1, loop=True)
+        self.animation.add_animation("move_left", row=0, start_col=3, num_frames=5, flip_x=True, speed=0.1, loop=True)
+        self.animation.add_animation("death_air_right", row=1, start_col=0, num_frames=4, speed=0.09, loop=False)
+        self.animation.add_animation("death_air_left", row=1, start_col=0, num_frames=4, flip_x=True, speed=0.09, loop=False)
+        self.animation.add_animation("death_land_right", row=1, start_col=4, num_frames=3, speed=0.1, loop=False)
+        self.animation.add_animation("death_land_left", row=1, start_col=4, num_frames=3, flip_x=True, speed=0.1, loop=False)
+
+    def _set_animation(self, name, reset=False):
+        if self.current_animation_name != name or reset:
+            self.current_animation_name = name
+            self.animation.set_animation(name, reset=True)
+            self.image = self.animation.get_current_frame()
+
+    def _advance_animation(self, dt):
+        self.animation.update(dt)
+        current_frame = self.animation.get_current_frame()
+        if current_frame is not None:
+            self.image = current_frame
+        return self.animation.is_finished()
+
+    def _update_animation(self, dt):
+        if self.is_dying:
+            if self.facing_right == 1:
+                self.display_facing_right = True
+            elif self.facing_right == -1:
+                self.display_facing_right = False
+
+            facing_suffix = "right" if self.display_facing_right else "left"
+            death_air_name = f"death_air_{facing_suffix}"
+            death_land_name = f"death_land_{facing_suffix}"
+
+            if self.death_finished:
+                self._set_animation(death_land_name)
+                self.animation.current_frame = self.animation.get_animation_frame_count(death_land_name) - 1
+                self.image = self.animation.get_current_frame()
+                return
+
+            if self.death_landed:
+                if self.current_animation_name != death_land_name:
+                    self._set_animation(death_land_name, reset=True)
+                if self._advance_animation(dt):
+                    self.death_finished = True
+                    self.animation.current_frame = self.animation.get_animation_frame_count(death_land_name) - 1
+                    self.image = self.animation.get_current_frame()
+                return
+
+            if self.current_animation_name != death_air_name:
+                self._set_animation(death_air_name, reset=True)
+            self._advance_animation(dt)
+            return
+
+        desired_display_facing_right = self.facing_right == 1
+        if desired_display_facing_right != self.display_facing_right:
+            self.turn_target_facing_right = desired_display_facing_right
+            turn_name = "turn_right" if self.turn_target_facing_right else "turn_left"
+            if self.current_animation_name != turn_name:
+                self._set_animation(turn_name, reset=True)
+            if self._advance_animation(dt):
+                self.display_facing_right = self.turn_target_facing_right
+                move_name = "move_right" if self.display_facing_right else "move_left"
+                self._set_animation(move_name, reset=True)
+            return
+
+        move_name = "move_right" if self.display_facing_right else "move_left"
+        self._set_animation(move_name)
+        self._advance_animation(dt)
 
     def take_damage(self, damage, knockback_direction=0):
         """Apply damage and knockback to the mossgrub."""
@@ -66,6 +148,17 @@ class MossGrub:
                 self.knockback_velocity_x = -self.knockback_strength
             elif knockback_direction > 0:
                 self.knockback_velocity_x = self.knockback_strength
+
+            if self.health <= 0 and not self.is_dying:
+                self.is_dying = True
+                self.death_landed = False
+                self.death_finished = False
+                self.on_ground = False
+                self.velocity_y = self.death_launch_velocity_y
+                if knockback_direction < 0:
+                    self.facing_right = -1
+                elif knockback_direction > 0:
+                    self.facing_right = 1
 
     def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0):
         """Update position, physics, and patrol movement."""
@@ -153,7 +246,8 @@ class MossGrub:
         # camera when it moves above the visible view.
 
         # Combine patrol motion with temporary knockback push.
-        horizontal_move = (self.speed * self.facing_right + self.knockback_velocity_x) * dt
+        patrol_speed = 0.0 if self.is_dying else self.speed * self.facing_right
+        horizontal_move = (patrol_speed + self.knockback_velocity_x) * dt
         self._frac_x += horizontal_move
         move_px = int(self._frac_x)
         self._frac_x -= move_px
@@ -189,35 +283,41 @@ class MossGrub:
 
                 if overlap_right < overlap_left:
                     world_rect.right = cr.left
-                    self.facing_right = -1
+                    if not self.is_dying:
+                        self.facing_right = -1
                 else:
                     world_rect.left = cr.right
-                    self.facing_right = 1
+                    if not self.is_dying:
+                        self.facing_right = 1
 
                 self.rect.x = int(world_rect.x - camera_x)
 
         # Check for boundaries and reverse direction.
-        if self.rect.centerx >= max_x:
-            self.facing_right = -1
-        elif self.rect.centerx <= min_x:
-            self.facing_right = 1
+        if not self.is_dying:
+            if self.rect.centerx >= max_x:
+                self.facing_right = -1
+            elif self.rect.centerx <= min_x:
+                self.facing_right = 1
         
         if self.knockback_velocity_x > 0.0:
             self.knockback_velocity_x = max(0.0, self.knockback_velocity_x - self.knockback_decay * dt)
         elif self.knockback_velocity_x < 0.0:
             self.knockback_velocity_x = min(0.0, self.knockback_velocity_x + self.knockback_decay * dt)
 
+        if self.is_dying and landed:
+            self.death_landed = True
+            self.knockback_velocity_x = 0.0
+            self._frac_x = 0.0
+
+        self._update_animation(dt)
+
     def draw(self, screen, look_y_offset=0):
         """Draw the mossgrub on screen."""
         # Calculate draw position with look offset
         draw_rect = self.rect.copy()
         draw_rect.y += look_y_offset
-        
-        # Flip image based on facing direction
-        if self.facing_right == 1:
-            screen.blit(self.image, draw_rect)
-        else:
-            screen.blit(self.image_flipped, draw_rect)
+
+        screen.blit(self.image, draw_rect)
     
     def reset_position(self, x, y):
         """Reset the mossgrub to the given spawn position."""
@@ -225,3 +325,13 @@ class MossGrub:
         self.velocity_x = 0
         self.velocity_y = 0
         self.on_ground = False
+        self.is_dying = False
+        self.death_landed = False
+        self.death_finished = False
+        self.facing_right = -1
+        self.display_facing_right = False
+        self.turn_target_facing_right = False
+        self.knockback_velocity_x = 0.0
+        self._frac_x = 0.0
+        self.health = self.max_health
+        self._set_animation("move_left", reset=True)

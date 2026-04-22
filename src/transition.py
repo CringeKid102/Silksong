@@ -2,6 +2,7 @@ import pygame
 import os
 from typing import Optional, Callable, Dict, Any
 from enum import Enum
+from asset_paths import resolve_image_path
 
 # Conditional import for video support
 try:
@@ -138,7 +139,13 @@ class TransitionManager:
             
             elif self.transition_type == TransitionType.FADE_IMAGE:
                 image_path = kwargs.get("image_path")
-                if not image_path or not os.path.exists(image_path):
+                if image_path and not os.path.exists(image_path):
+                    try:
+                        image_path = resolve_image_path(image_path)
+                    except FileNotFoundError:
+                        print(f"Image file not found: {image_path}")
+                        return False
+                elif not image_path:
                     print(f"Image file not found: {image_path}")
                     return False
                 

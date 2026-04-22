@@ -1,6 +1,6 @@
 import pygame
-import os
 from typing import Tuple, Optional
+from asset_paths import resolve_image_path
 from animation import Animation
 
 class Button:
@@ -27,7 +27,7 @@ class Button:
         self.was_hovering = False  # Track if we were hovering in previous frame
 
         # Pointer animation
-        pointer_sheet = os.path.join(os.path.dirname(__file__), "../assets/images/pointer.png")
+        pointer_sheet = resolve_image_path("pointer.png")
         self.pointer_anim = Animation(pointer_sheet, frame_width=36, frame_height=44)
         self._load_pointer_animations()
         

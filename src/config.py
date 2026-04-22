@@ -70,3 +70,29 @@ gray = (100, 100, 100)
 dark_gray = (50, 50, 50)
 dark_blue = (0, 0, 100)
 dark_green = (0, 100, 0)
+
+# Collider map overlay tuning.
+# Change scale to resize both maps, then use global_offset or per-layer offsets
+# to nudge them in world space without touching main.py.
+collider_map_overlay = {
+    "enabled": True,
+    "scale": 1.0,
+    "alpha": 255,
+    "padding": 40,
+    "split_y_offset": 1480,
+    "global_offset": (0, 0),
+    "layers": {
+        "upper": {
+            "path": "collider_maps/collider_map_upper.png",
+            "offset": (-135, -140),
+            "scale": 0.625,
+            "world_origin_override": None,
+        },
+        "lower": {
+            "path": "collider_maps/collider_map_lower.png",
+            "offset": (-140, -135),
+            "scale": 0.625,
+            "world_origin_override": None,
+        },
+    },
+}

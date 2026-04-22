@@ -2,6 +2,7 @@ import pygame
 import os
 import json
 import config
+from asset_paths import resolve_image_path
 from button import Button
 from audio import AudioManager
 from hornet import Hornet
@@ -23,7 +24,7 @@ class SaveSlotButton:
         self.rect = pygame.Rect(x, y, width, height)
 
         # Load menu slider for hover effect (different from button.py pointer)
-        slider_path = os.path.join(os.path.dirname(__file__), "../assets/images/MenuSliderHandle.png")
+        slider_path = resolve_image_path("MenuSliderHandle.png")
         if os.path.exists(slider_path):
             self.hover_pointer = pygame.image.load(slider_path).convert_alpha()
             # Scale slider
@@ -105,7 +106,7 @@ class TrashButton:
         self.height = height
         self.rect = pygame.Rect(x - width // 2, y - height // 2, width, height)
 
-        trash_path = os.path.join(os.path.dirname(__file__), "../assets/images/trash.png")
+        trash_path = resolve_image_path("trash.png")
         if os.path.exists(trash_path):
             trash_sheet = pygame.image.load(trash_path).convert_alpha()
             sheet_width = trash_sheet.get_width()
@@ -122,7 +123,7 @@ class TrashButton:
             self.trash_hover = pygame.Surface((width, height))
             self.trash_hover.fill(config.yellow)
 
-        pointer_sheet = os.path.join(os.path.dirname(__file__), "../assets/images/pointer.png")
+        pointer_sheet = resolve_image_path("pointer.png")
         self.pointer_anim = Animation(pointer_sheet, frame_width=36, frame_height=44)
         self._load_pointer_animations()
 
@@ -243,7 +244,7 @@ class SaveFile:
         self.status_font = config.get_font(int(20 * config.scale_y))
         
         # Load background image for existing save files
-        played_file_path = os.path.join(os.path.dirname(__file__), "../assets/images/mosscave_area_art.png")
+        played_file_path = resolve_image_path("mosscave_area_art.png")
         self.played_file = self._load_and_scale_image(played_file_path, int(353*config.scale_x), int(640*config.scale_y))
         
 
@@ -284,7 +285,7 @@ class SaveFile:
         )
 
         # Pre-load save file border image
-        borders_path = os.path.join(os.path.dirname(__file__), "../assets/images/save_file_border.png")
+        borders_path = resolve_image_path("save_file_border.png")
         self.borders = self._load_and_scale_image(borders_path, int(377*config.scale_x), int(669*config.scale_y))
 
     def _load_and_scale_image(self, image_path, width, height):
@@ -308,6 +309,7 @@ class SaveFile:
         default_game_state = {
             "level": 1,
             "score": 0,
+            "intro_cutscene_seen": False,
             "player_position": None,
             "inventory": [],
             "player_health": 5,
@@ -433,6 +435,7 @@ class SaveFile:
                     self.game_state = {
                         "level": 1,
                         "score": 0,
+                        "intro_cutscene_seen": False,
                         "player_position": None,
                         "inventory": [],
                         "player_health": 5,
@@ -446,7 +449,9 @@ class SaveFile:
                     self.save_slot_buttons[slot_num].update_save_status(True, self.played_file)
                 
                 # Return signal to start game with this slot
-                return f"start_{slot_num}"
+                if loaded_state is not None:
+                    return f"start_{slot_num}"
+                return f"start_new_{slot_num}"
         
         # Check close button
         if self.close_button.is_clicked(pos):

@@ -1,21 +1,34 @@
 import pygame
-import os
 import math
+from animation import Animation
 from audio import AudioManager
+from asset_paths import resolve_image_path
 import config
 
 
 class MossMother:
     """Flying boss enemy with pursuit, curve attacks, and stagger phases."""
 
+    FRAME_WIDTH = 253
+    FRAME_HEIGHT = 282
+    ANIMATION_SCALE = 0.45
+
     def __init__(self, x, y, screen_width, screen_height):
         """Create the Moss Mother boss at the given position."""
-        image_path = os.path.join(os.path.dirname(__file__), "../assets/images/moss_mother.png")
-        self.image = pygame.image.load(image_path).convert_alpha()
-        source_width, source_height = self.image.get_size()
-        scale_factor = 0.45
-        self.image = pygame.transform.scale(self.image, (int(source_width * scale_factor), int(source_height * scale_factor)))
-        self.image_flipped = pygame.transform.flip(self.image, True, False)
+        image_path = resolve_image_path("spritesheet/enemy/moss_mother.png")
+        self.animation = Animation(
+            image_path,
+            frame_width=self.FRAME_WIDTH,
+            frame_height=self.FRAME_HEIGHT,
+            scale=self.ANIMATION_SCALE,
+        )
+        self._load_animations()
+        self.animations = self.animation.animations
+        self.display_facing_right = True
+        self.turn_target_facing_right = True
+        self.current_animation_name = "idle_right"
+        self.animation.set_animation(self.current_animation_name)
+        self.image = self.animation.get_current_frame()
 
         self.rect = self.image.get_rect()
         self.rect.midbottom = (x, y)
@@ -74,6 +87,8 @@ class MossMother:
         self.attack_type_separation = 10.0
         self.curve_attack_lockout_timer = 0.0
         self.cry_attack_lockout_timer = 0.0
+        self.attack_finish_anim_duration = 0.12
+        self.attack_finish_anim_timer = 0.0
 
         # Multi-phase attack timing
         self.attack_step = 0
@@ -113,6 +128,91 @@ class MossMother:
 
         # Camera velocity cache
         self._camera_velocity = [0, 0]
+
+    def _load_animations(self):
+        self.animation.add_animation("turn_right", row=0, start_col=0, num_frames=5, speed=0.07, loop=False)
+        self.animation.add_animation("turn_left", row=0, start_col=0, num_frames=5, flip_x=True, speed=0.07, loop=False)
+        self.animation.add_animation("idle_right", row=0, start_col=5, num_frames=5, speed=0.12, loop=True)
+        self.animation.add_animation("idle_left", row=0, start_col=5, num_frames=5, flip_x=True, speed=0.12, loop=True)
+        self.animation.add_animation("wall_attack_intro_right", row=1, start_col=0, num_frames=3, speed=0.09, loop=False)
+        self.animation.add_animation("wall_attack_intro_left", row=1, start_col=0, num_frames=3, flip_x=True, speed=0.09, loop=False)
+        self.animation.add_animation("wall_attack_loop_right", row=1, start_col=3, num_frames=2, speed=0.09, loop=True)
+        self.animation.add_animation("wall_attack_loop_left", row=1, start_col=3, num_frames=2, flip_x=True, speed=0.09, loop=True)
+        self.animation.add_animation("charge_right", row=2, start_col=0, num_frames=3, speed=0.08, loop=True)
+        self.animation.add_animation("charge_left", row=2, start_col=0, num_frames=3, flip_x=True, speed=0.08, loop=True)
+        self.animation.add_animation("charge_end_right", row=2, start_col=3, num_frames=1, speed=0.1, loop=False)
+        self.animation.add_animation("charge_end_left", row=2, start_col=3, num_frames=1, flip_x=True, speed=0.1, loop=False)
+        self.animation.add_animation("stun_fall_right", row=3, start_col=0, num_frames=1, speed=0.1, loop=False)
+        self.animation.add_animation("stun_fall_left", row=3, start_col=0, num_frames=1, flip_x=True, speed=0.1, loop=False)
+        self.animation.add_animation("stun_ground_right", row=3, start_col=1, num_frames=1, speed=0.1, loop=False)
+        self.animation.add_animation("stun_ground_left", row=3, start_col=1, num_frames=1, flip_x=True, speed=0.1, loop=False)
+
+    def _set_animation(self, name, reset=False):
+        if self.current_animation_name != name or reset:
+            self.current_animation_name = name
+            self.animation.set_animation(name, reset=True)
+            self.image = self.animation.get_current_frame()
+
+    def _advance_animation(self, dt):
+        self.animation.update(dt)
+        current_frame = self.animation.get_current_frame()
+        if current_frame is not None:
+            self.image = current_frame
+        return self.animation.is_finished()
+
+    def _get_animation_state_name(self):
+        if self.is_staggered:
+            return "stun_ground" if self.on_ground else "stun_fall"
+        if self.is_crying:
+            return "wall_attack"
+        if self.is_attacking:
+            return "charge"
+        if self.attack_finish_anim_timer > 0.0:
+            return "charge_end"
+        return "idle"
+
+    def _update_animation(self, dt):
+        animation_state = self._get_animation_state_name()
+
+        if animation_state == "wall_attack":
+            self.display_facing_right = self.facing_right
+            facing_suffix = "right" if self.display_facing_right else "left"
+            intro_name = f"wall_attack_intro_{facing_suffix}"
+            loop_name = f"wall_attack_loop_{facing_suffix}"
+
+            if self.current_animation_name not in {intro_name, loop_name}:
+                self._set_animation(intro_name, reset=True)
+            elif self.current_animation_name == intro_name and self.animation.is_finished():
+                self._set_animation(loop_name, reset=True)
+
+            self._advance_animation(dt)
+
+            if self.current_animation_name == intro_name and self.animation.is_finished():
+                self._set_animation(loop_name, reset=True)
+                self.image = self.animation.get_current_frame()
+            return
+
+        if animation_state != "idle":
+            self.display_facing_right = self.facing_right
+            facing_suffix = "right" if self.display_facing_right else "left"
+            self._set_animation(f"{animation_state}_{facing_suffix}")
+            self._advance_animation(dt)
+            return
+
+        if self.facing_right != self.display_facing_right:
+            self.turn_target_facing_right = self.facing_right
+            turn_name = "turn_right" if self.turn_target_facing_right else "turn_left"
+            if self.current_animation_name != turn_name:
+                self._set_animation(turn_name, reset=True)
+            if self._advance_animation(dt):
+                self.display_facing_right = self.turn_target_facing_right
+                facing_suffix = "right" if self.display_facing_right else "left"
+                self._set_animation(f"idle_{facing_suffix}", reset=True)
+            return
+
+        facing_suffix = "right" if self.display_facing_right else "left"
+        self._set_animation(f"idle_{facing_suffix}")
+        self._advance_animation(dt)
 
     def _world_position(self, camera_x=0, camera_y=0):
         world_x = self.rect.centerx + int(camera_x)
@@ -414,6 +514,7 @@ class MossMother:
                     self.attack_step = 0
                     self.attack_phase_time = 0.0
                     self.is_attacking = False
+                    self.attack_finish_anim_timer = self.attack_finish_anim_duration
                     self.attack_timer = 0.0
                     self.attack_long_cooldown_timer = self.attack_long_cooldown
                     self.cry_attack_lockout_timer = max(self.cry_attack_lockout_timer, self.attack_type_separation)
@@ -562,6 +663,8 @@ class MossMother:
         self.on_ground = False
         self.is_staggered = False
         self.use_gravity = False
+        self.facing_right = True
+        self.display_facing_right = True
         self.is_attacking = False
         self.attack_timer = 0.0
         self.attack_elapsed = 0.0
@@ -581,9 +684,11 @@ class MossMother:
         self._cry_attack_triggered = False
         self.curve_attack_lockout_timer = 0.0
         self.cry_attack_lockout_timer = 0.0
+        self.attack_finish_anim_timer = 0.0
         self.next_stagger_idx = 0
         self.stagger_count = 0
         self.health = self.max_health
+        self._set_animation("idle_right", reset=True)
 
     def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0, player_world_rect=None, arena_rect=None):
         self.rect.x -= int(camera_dx)
@@ -602,6 +707,8 @@ class MossMother:
             self.curve_attack_lockout_timer = max(0.0, self.curve_attack_lockout_timer - dt)
         if self.cry_attack_lockout_timer > 0.0:
             self.cry_attack_lockout_timer = max(0.0, self.cry_attack_lockout_timer - dt)
+        if self.attack_finish_anim_timer > 0.0:
+            self.attack_finish_anim_timer = max(0.0, self.attack_finish_anim_timer - dt)
 
         player_in_arena = bool(arena_rect and player_world_rect and arena_rect.colliderect(player_world_rect))
 
@@ -622,6 +729,7 @@ class MossMother:
                 self.has_spawned_in_arena = True
 
             if not player_in_arena:
+                self._update_animation(dt)
                 return
 
             self.is_engaged = True
@@ -635,6 +743,7 @@ class MossMother:
                     self.is_staggered = False
                     self.use_gravity = False
                     self.on_ground = False
+            self._update_animation(dt)
             return
 
         # Decrement long cooldown timer each frame
@@ -648,6 +757,7 @@ class MossMother:
             if self.cry_timer <= 0.0:
                 self.is_crying = False
                 self.curve_attack_lockout_timer = max(self.curve_attack_lockout_timer, self.attack_type_separation)
+            self._update_animation(dt)
             return
 
         # Forced gravity flag may be enabled during stagger only.
@@ -660,6 +770,7 @@ class MossMother:
                 and not self.is_attacking
             ):
                 if self.start_cry_attack():
+                    self._update_animation(dt)
                     return
 
             if self.is_attacking:
@@ -671,6 +782,7 @@ class MossMother:
                     collision_rects=collision_rects,
                     arena_rect=arena_rect,
                 )
+                self._update_animation(dt)
                 return
 
             if player_world_rect is not None and player_in_arena:
@@ -682,6 +794,7 @@ class MossMother:
                 )
                 if can_attack:
                     self._start_curve_attack(player_world_rect, arena_rect, camera_x=camera_x, camera_y=camera_y)
+                    self._update_animation(dt)
                     return
 
                 self._update_flight_path(dt, player_world_rect, collision_rects, camera_x=camera_x, camera_y=camera_y, min_x=min_x, max_x=max_x)
@@ -708,11 +821,9 @@ class MossMother:
             # Should not happen outside stagger state, but keep safe fallback.
             self._apply_gravity_and_collision(dt, collision_rects, camera_x=camera_x, camera_y=camera_y)
 
+        self._update_animation(dt)
+
     def draw(self, screen, look_y_offset=0):
         draw_rect = self.rect.copy()
         draw_rect.y += look_y_offset
-
-        if self.facing_right:
-            screen.blit(self.image, draw_rect)
-        else:
-            screen.blit(self.image_flipped, draw_rect)
+        screen.blit(self.image, draw_rect)

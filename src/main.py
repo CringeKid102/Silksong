@@ -1,15 +1,14 @@
 import pygame
 import random
 import os
-import sys
 import threading
 import cv2
 import config
+from asset_paths import resolve_image_path
 from animation import Animation
 from audio import AudioManager
 from button import Button
 from particles import ParticleSystem
-from slider import Slider
 from transition import TransitionManager, TransitionType
 from settings import SettingsMenu
 from save_file import SaveFile
@@ -17,10 +16,8 @@ from hornet import Hornet
 from mossgrub import MossGrub
 from moss_mother import MossMother
 
-
 # Initialize pygame
 pygame.init()
-
 
 class ThreadedVideoCapture:
     """Prefetch video frames on a worker thread so the game loop never blocks on OpenCV I/O."""
@@ -100,7 +97,6 @@ class ThreadedVideoCapture:
         if self.capture is not None:
             self.capture.release()
 
-
 class Silksong:
 
     # Class-level image cache to avoid reloading
@@ -121,6 +117,106 @@ class Silksong:
             cls._image_cache[cache_key] = img
         return cls._image_cache[cache_key]
 
+    def _load_collider_map_overlays(self):
+        """Load collider map layers using the editable overlay settings in config."""
+        self._collider_map_layers = {}
+        overlay_config = getattr(config, "collider_map_overlay", {})
+        if not overlay_config.get("enabled", True):
+            return
+
+        base_scale = float(overlay_config.get("scale", 1.0))
+        base_alpha = max(0, min(255, int(overlay_config.get("alpha", 255))))
+        image_root = os.path.join(os.path.dirname(__file__), "../assets/images")
+
+        for layer_name, layer_config in overlay_config.get("layers", {}).items():
+            relative_path = layer_config.get("path")
+            if not relative_path:
+                continue
+
+            try:
+                layer_image = pygame.image.load(os.path.join(image_root, relative_path)).convert_alpha()
+            except Exception:
+                continue
+
+            layer_scale = base_scale * float(layer_config.get("scale", 1.0))
+            if layer_scale != 1.0:
+                scaled_size = (
+                    max(1, int(round(layer_image.get_width() * layer_scale))),
+                    max(1, int(round(layer_image.get_height() * layer_scale))),
+                )
+                layer_image = pygame.transform.smoothscale(layer_image, scaled_size)
+
+            layer_image.set_alpha(base_alpha)
+            self._collider_map_layers[layer_name] = {
+                "image": layer_image,
+                "world_origin": None,
+                "offset": tuple(layer_config.get("offset", (0, 0))),
+                "world_origin_override": layer_config.get("world_origin_override"),
+            }
+
+    def _ensure_game_render_assets(self):
+        """Load gameplay-only visual assets on first use instead of during app startup."""
+        if self.game_background_image is None:
+            game_background_img_path = resolve_image_path("game_bg.png")
+            self.game_background_image = self._load_and_scale_image(
+                game_background_img_path,
+                int(config.screen_width * 1.3),
+                int(config.screen_height * 1),
+            )
+
+        if self._collider_map_layers is None:
+            self._load_collider_map_overlays()
+            if self.ground_colliders:
+                self._rebuild_collider_map_overlays(int(self.world_ground_y))
+
+    def _rebuild_collider_map_overlays(self, base_y):
+        """Recompute world-space origins for the collider map overlay layers."""
+        if not getattr(self, "_collider_map_layers", None):
+            return
+
+        overlay_config = getattr(config, "collider_map_overlay", {})
+        padding = int(overlay_config.get("padding", 40))
+        global_offset_x, global_offset_y = tuple(overlay_config.get("global_offset", (0, 0)))
+        split_y = base_y - int(overlay_config.get("split_y_offset", 1480))
+
+        all_rects = self.ground_colliders[1:]
+        upper_rects, lower_rects = [], []
+        for collider_rect in all_rects:
+            if collider_rect.top < split_y:
+                clipped = collider_rect.clip(
+                    pygame.Rect(collider_rect.left, -1000000, collider_rect.width, split_y + 1000000)
+                )
+                if clipped.width > 0 and clipped.height > 0:
+                    upper_rects.append(clipped)
+            if collider_rect.bottom > split_y:
+                clipped = collider_rect.clip(
+                    pygame.Rect(collider_rect.left, split_y, collider_rect.width, 1000000)
+                )
+                if clipped.width > 0 and clipped.height > 0:
+                    lower_rects.append(clipped)
+
+        layer_rects = {
+            "upper": upper_rects,
+            "lower": lower_rects,
+        }
+
+        for layer_name, layer_data in self._collider_map_layers.items():
+            override_origin = layer_data.get("world_origin_override")
+            if override_origin is not None:
+                layer_data["world_origin"] = (int(override_origin[0]), int(override_origin[1]))
+                continue
+
+            rects = layer_rects.get(layer_name, [])
+            if not rects:
+                layer_data["world_origin"] = None
+                continue
+
+            offset_x, offset_y = layer_data.get("offset", (0, 0))
+            layer_data["world_origin"] = (
+                min(rect.left for rect in rects) - padding + int(global_offset_x) + int(offset_x),
+                min(rect.top for rect in rects) - padding + int(global_offset_y) + int(offset_y),
+            )
+
     def __init__(self):
         """Set up the game window, assets, and subsystems."""
         # Create fullscreen display at actual screen size
@@ -140,50 +236,40 @@ class Silksong:
         self.cutscene_next_state = None
         
         # Load and scale title image using cache
-        title_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title.png")
+        title_img_path = resolve_image_path("title.png")
         self.title_image = self._load_and_scale_image(title_img_path, int(880 * config.scale_x), int(440 * config.scale_y))
         
         # Load and scale title element (needle)
-        title_needle_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0003_hornet_needle.png")
+        title_needle_path = resolve_image_path("hornet_title_screen_boneforest_0003_hornet_needle.png")
         title_needle = self._load_and_scale_image(title_needle_path, int(186*config.scale_x), int(864*config.scale_y))
         self.title_needle = title_needle
     
         # Load and scale title element (pin)
-        title_pin_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0002_lace_pin.png")
+        title_pin_path = resolve_image_path("hornet_title_screen_boneforest_0002_lace_pin.png")
         title_pin_scaled = self._load_and_scale_image(title_pin_path, int(94*config.scale_x), int(613*config.scale_y))
         self.title_pin = pygame.transform.rotate(title_pin_scaled, -5)  # Rotate 15 degrees to the right (negative = clockwise)
-
-    
-        
         
         # Load and scale title element (boulder)
-        title_boulder_path = os.path.join(os.path.dirname(__file__), "../assets/images/hornet_title_screen_boneforest_0000_bone_cliff_01.png")
+        title_boulder_path = resolve_image_path("hornet_title_screen_boneforest_0000_bone_cliff_01.png")
         self.title_boulder = self._load_and_scale_image(title_boulder_path, int(552*config.scale_x), int(236*config.scale_y))
 
         # Load and scale background image using cache
-        background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/title_screen_bg.jpg")
+        background_img_path = resolve_image_path("title_screen_bg.jpg")
         self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
         
-        game_background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/game_bg.png")
-        self.game_background_image = self._load_and_scale_image(
-            game_background_img_path,
-            int(config.screen_width * 1.3),
-            int(config.screen_height * 1),
-        )
+        self.game_background_image = None
+        self._collider_map_layers = None
 
-        arena_background_img_path = os.path.join(os.path.dirname(__file__), "../assets/images/arena_bg.png")
-        self.arena_background_image = self._load_and_scale_image(arena_background_img_path, config.screen_width, config.screen_height)
         # Load custom cursor image
         self.cursor_image = None
         self.cursor_hotspot = (0, 0)
-        cursor_candidates = [
-            os.path.join(os.path.dirname(__file__), "../assets/images/cursor.png"),
-            os.path.join(os.path.dirname(__file__), "../assets/images/Cursor.png"),
-        ]
+        cursor_candidates = ["cursor.png", "Cursor.png"]
         for cursor_path in cursor_candidates:
-            if os.path.exists(cursor_path):
-                self.cursor_image = pygame.image.load(cursor_path).convert_alpha()
+            try:
+                self.cursor_image = pygame.image.load(resolve_image_path(cursor_path)).convert_alpha()
                 break
+            except FileNotFoundError:
+                continue
         pygame.mouse.set_visible(self.cursor_image is None)
 
         
@@ -212,9 +298,9 @@ class Silksong:
         
         # Initialize particle system for title screen effects
         self.particle_system = ParticleSystem(config.screen_width, config.screen_height)
-        ember_image_path = os.path.join(os.path.dirname(__file__), "../assets/images/ember_particle.png")
+        ember_image_path = resolve_image_path("ember_particle.png")
         self.particle_system.load_ember_image(ember_image_path)
-        ember_round_image_path = os.path.join(os.path.dirname(__file__), "../assets/images/Texture2D/ember_particle_round.png")
+        ember_round_image_path = resolve_image_path("Texture2D/ember_particle_round.png")
         self.particle_system.load_ember_round_image(ember_round_image_path)
         
         # Create buttons
@@ -319,6 +405,8 @@ class Silksong:
             pygame.Rect(arena_left, arena_ceiling_y, wall_thickness, arena_height),
             pygame.Rect(arena_right, arena_ceiling_y, wall_thickness, arena_height - 200),
         ]
+
+        self._rebuild_collider_map_overlays(base_y)
 
         # Keep bench anchored to world ground, not player-specific values.
         if self.player:
@@ -680,6 +768,20 @@ class Silksong:
         if self.state != next_state:
             self.change_state(next_state)
 
+    def _mark_intro_cutscene_seen(self):
+        """Persist that this save slot has already consumed the intro cutscene."""
+        if self.current_slot not in self.save_file.save_slots:
+            return
+
+        current_state = dict(self.game_state) if isinstance(self.game_state, dict) else {}
+        if current_state.get("intro_cutscene_seen"):
+            self.game_state = current_state
+            return
+
+        current_state["intro_cutscene_seen"] = True
+        self.game_state = current_state
+        self.save_file.save_game_file(current_state, self.current_slot)
+
     def _start_intro_cutscene(self, next_state="game"):
         """Open the intro cinematic before gameplay begins."""
         self.cutscene_next_state = next_state
@@ -796,8 +898,9 @@ class Silksong:
 
         self._bench_interact_key_down = interact_pressed
 
-        if player.health <= 0:
-            self.respawn_player()
+        if player.is_dead:
+            if player.death_animation_complete:
+                self.respawn_player()
             return
 
         if self.player_contact_damage_timer > 0.0:
@@ -824,7 +927,7 @@ class Silksong:
         camera_dx = self.camera_x - prev_camera_x
         camera_dy = self.camera_y - prev_camera_y
 
-        if self.mossgrub and self.mossgrub.health > 0:
+        if self.mossgrub:
             self.mossgrub.update(mossgrub_left_bound, mossgrub_right_bound, dt,
                                 collision_rects=self.ground_colliders,
                                 camera_x=self.camera_x,
@@ -855,7 +958,7 @@ class Silksong:
         if player.attack_hitbox:
             attack_rect = player.attack_hitbox
 
-            if self.mossgrub and self.mossgrub.health > 0:
+            if self.mossgrub and not self.mossgrub.is_dying and self.mossgrub.health > 0:
                 mossgrub_world = self.mossgrub.rect.copy()
                 mossgrub_world.x += int(self.camera_x)
                 mossgrub_world.y += int(self.camera_y)
@@ -1096,6 +1199,8 @@ class Silksong:
         self.screen.blit(skip_text, skip_rect)
     
     def draw_game(self):
+        self._ensure_game_render_assets()
+
         # Draw background (could add parallax later)
         # Get the look offset from the player (camera pans up/down)
         look_y = self.player.camera_look_y if self.player else 0
@@ -1110,33 +1215,17 @@ class Silksong:
         bg_y = min(0, max(config.screen_height - bg_height, bg_y))
         self.screen.blit(self.game_background_image, (bg_x, bg_y))
         
-        # Draw arena background
-        if self.boss_arena_rect and getattr(self,"arena_background_image", None):
-            arena_screen_x = int(self.boss_arena_rect.left - self.camera_x + shake_x)
-            arena_screen_y = int(self.boss_arena_rect.top - self.camera_y - look_y + shake_y)
-            arena_w = int(self.boss_arena_rect.width)
-            arena_h = int(self.boss_arena_rect.height)
-            arena_surf = pygame.transform.scale(self.arena_background_image, (arena_w, arena_h))
-            self.screen.blit(arena_surf, (arena_screen_x, arena_screen_y))
-        
+        # Draw collider map overlay layers aligned to world space.
+        for layer_data in getattr(self, "_collider_map_layers", {}).values():
+            layer_image = layer_data.get("image")
+            layer_origin = layer_data.get("world_origin")
+            if layer_image is None or layer_origin is None:
+                continue
 
-
-
-        # Draw ground and platforms
-        if self.ground_colliders:
-            for cr in self.ground_colliders:
-                screen_x = int(cr.left - self.camera_x + shake_x)
-                screen_y = int(cr.top - self.camera_y - look_y + shake_y)
-                if cr.width > 5000:
-                    # Main ground: blue highlighted strip
-                    ground_band = pygame.Rect(0, screen_y, config.screen_width, max(2, config.screen_height - screen_y))
-                    pygame.draw.rect(self.screen, (55, 95, 165), ground_band)
-                    pygame.draw.line(self.screen, (140, 185, 255), (0, screen_y), (config.screen_width, screen_y), 3)
-                else:
-                    # Elevated platform: draw filled rectangle
-                    platform_rect = pygame.Rect(screen_x, screen_y, cr.width, cr.height)
-                    pygame.draw.rect(self.screen, (100, 100, 120), platform_rect)
-                    pygame.draw.rect(self.screen, (200, 200, 220), platform_rect, 2)
+            world_x, world_y = layer_origin
+            screen_x = int(world_x - self.camera_x + shake_x)
+            screen_y = int(world_y - self.camera_y - look_y + shake_y)
+            self.screen.blit(layer_image, (screen_x, screen_y))
 
         # Draw player (offset by look_y so player moves with the world)
         if self.player:
@@ -1160,15 +1249,12 @@ class Silksong:
                 pygame.draw.rect(self.screen, (255, 230, 120), attack_draw_rect, 2)
 
         # Draw MossGrub (rect is now in screen space)
-        if self.mossgrub and self.mossgrub.health > 0:
+        if self.mossgrub:
             enemy_draw_rect = self.mossgrub.rect.copy()
             enemy_draw_rect.x += int(shake_x)
             enemy_draw_rect.y += int(shake_y - look_y)
 
-            if self.mossgrub.facing_right == 1:
-                self.screen.blit(self.mossgrub.image_flipped, enemy_draw_rect)
-            else:
-                self.screen.blit(self.mossgrub.image, enemy_draw_rect)
+            self.screen.blit(self.mossgrub.image, enemy_draw_rect)
 
             pygame.draw.rect(self.screen, (255, 70, 70), enemy_draw_rect, 2)
 
@@ -1178,10 +1264,7 @@ class Silksong:
             mother_draw_rect.x += int(shake_x)
             mother_draw_rect.y += int(shake_y - look_y)
 
-            if self.mossmother.facing_right:
-                self.screen.blit(self.mossmother.image, mother_draw_rect)
-            else:
-                self.screen.blit(self.mossmother.image_flipped, mother_draw_rect)
+            self.screen.blit(self.mossmother.image, mother_draw_rect)
 
             pygame.draw.rect(self.screen, (255, 170, 70), mother_draw_rect, 2)
 
@@ -1335,9 +1418,10 @@ class Silksong:
                     if action == "close":
                         # Close button was clicked, return to title screen
                         self.change_state("title screen")
-                    elif action and action.startswith("start_"):
+                    elif action and (action.startswith("start_") or action.startswith("start_new_")):
                         # Save slot was selected, start game
-                        slot_num = int(action.split("_")[1])
+                        is_new_save = action.startswith("start_new_")
+                        slot_num = int(action.split("_")[-1])
                         self.current_slot = slot_num
                         loaded_state = self.save_file.load_game_file(slot_num) or {}
                         self.game_state = loaded_state
@@ -1472,11 +1556,21 @@ class Silksong:
                         self._bench_interact_key_down = False
                         self.player_camera_anchor_x = int(self.player.rect.x)
                         self.player_camera_anchor_y = int(self.player.rect.y)
+
+                        if is_new_save:
+                            self.game_state["intro_cutscene_seen"] = False
+                        elif "intro_cutscene_seen" not in self.game_state:
+                            self.game_state["intro_cutscene_seen"] = True
+
                         # Persist state immediately so schema stays up-to-date
                         self.save_current_game_state(force=True)
 
-                        # Start intro cutscene, then enter gameplay
-                        self._start_intro_cutscene(next_state="game")
+                        # Only brand-new saves get the intro cinematic.
+                        if is_new_save:
+                            self._mark_intro_cutscene_seen()
+                            self._start_intro_cutscene(next_state="game")
+                        else:
+                            self.change_state("game")
                     # Delete actions are handled within save_file.handle_event
 
                 elif self.state == "game":

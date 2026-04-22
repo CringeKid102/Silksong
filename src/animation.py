@@ -1,8 +1,10 @@
 import os
 import pygame
-from typing import List, Optional, Tuple, Dict
+from typing import Callable, List, Optional, Tuple, Dict
 
 class Animation:
+    _sprite_sheet_cache: Dict[str, pygame.Surface] = {}
+
     def __init__(
             self, 
             sprite_sheet_path: str, 
@@ -15,7 +17,8 @@ class Animation:
         """Initialize the animation handler with a spritesheet."""
         if not os.path.exists(sprite_sheet_path):
             raise FileNotFoundError(f"Sprite sheet not found: {sprite_sheet_path}")
-        self.sprite_sheet = pygame.image.load(sprite_sheet_path).convert_alpha()
+        self.sprite_sheet_path = os.path.normpath(sprite_sheet_path)
+        self.sprite_sheet: Optional[pygame.Surface] = None
         self.frame_width = frame_width
         self.frame_height = frame_height
         self.scale = float(scale)
@@ -36,19 +39,29 @@ class Animation:
         # Cache for extracted frames to avoid re-blitting repeatedly
         self._frame_cache: Dict[Tuple[int, int, bool, float], pygame.Surface] = {}
 
+    def _get_sprite_sheet(self) -> pygame.Surface:
+        cached_sheet = self._sprite_sheet_cache.get(self.sprite_sheet_path)
+        if cached_sheet is None:
+            cached_sheet = pygame.image.load(self.sprite_sheet_path).convert_alpha()
+            self._sprite_sheet_cache[self.sprite_sheet_path] = cached_sheet
+        self.sprite_sheet = cached_sheet
+        return cached_sheet
+
     def _extract_frame_surface(self, col: int, row: int, flip_x: bool) -> pygame.Surface:
         """Extract and cache a single frame surface from the spritesheet."""
         key = (col, row, flip_x, self.scale)
         if key in self._frame_cache:
             return self._frame_cache[key]
+
+        sprite_sheet = self.sprite_sheet if self.sprite_sheet is not None else self._get_sprite_sheet()
         
         x = self.margin + col * (self.frame_width + self.spacing)
         y = self.margin + row * (self.frame_height + self.spacing)
         rect = pygame.Rect(x, y, self.frame_width, self.frame_height)
         
         # Validate rectangle is within sprite sheet bounds
-        sheet_width = self.sprite_sheet.get_width()
-        sheet_height = self.sprite_sheet.get_height()
+        sheet_width = sprite_sheet.get_width()
+        sheet_height = sprite_sheet.get_height()
         if rect.right > sheet_width or rect.bottom > sheet_height:
             raise ValueError(
                 f"Frame at row={row}, col={col} is outside sprite sheet bounds. "
@@ -57,7 +70,7 @@ class Animation:
                 f"Margin: {self.margin}, Spacing: {self.spacing}"
             )
         
-        frame_surf = self.sprite_sheet.subsurface(rect).copy()
+        frame_surf = sprite_sheet.subsurface(rect).copy()
         if self.scale != 1.0:
             new_size = (int(self.frame_width * self.scale), int(self.frame_height * self.scale))
             frame_surf = pygame.transform.smoothscale(frame_surf, new_size)
@@ -77,7 +90,7 @@ class Animation:
     def add_animation(
             self, 
             name: str, 
-            frames: Optional[List[pygame.Surface]] = None, 
+            frames: Optional[List[pygame.Surface] | Callable[[], List[pygame.Surface]]] = None, 
             *,
             row: Optional[int] = None,
             start_col: int = 0,
@@ -85,48 +98,84 @@ class Animation:
             flip_x: bool = False,
             speed: float = 0.1,
             durations: Optional[List[float]] = None,
+            frame_count: Optional[int] = None,
             loop: bool = True,
             pingpong: bool = False
         ):
         """Register a named animation from frames or spritesheet coordinates."""
+        frames_factory = None
+        resolved_frames = None
+
         if frames is None:
             if row is None or num_frames <= 0:
                 raise ValueError("Either frames must be provided or row and num_frames must be specified.")
-            frames = self.extract_frames(row, start_col, num_frames, flip_x=flip_x)
-        
-        if durations is not None and len(durations) != len(frames):
+            frame_count = num_frames
+            frames_factory = lambda: self.extract_frames(row, start_col, num_frames, flip_x=flip_x)
+        elif callable(frames):
+            if frame_count is None and durations is None:
+                raise ValueError("Callable frame providers require frame_count or durations.")
+            frames_factory = frames
+        else:
+            resolved_frames = frames
+            frame_count = len(resolved_frames)
+
+        if frame_count is None:
+            frame_count = len(durations) if durations is not None else 0
+
+        if durations is not None and len(durations) != frame_count:
             raise ValueError("Length of durations must match number of frames.")
-        
-        # Normalize durations list
-        if durations is None:
-            durations = [speed] * len(frames)
 
         self.animations[name] = {
-            'frames': frames,
+            'frames': resolved_frames,
             'durations': durations,
+            'speed': speed,
+            'frame_count': frame_count,
+            'frames_factory': frames_factory,
             'loop': loop,
             'pingpong': pingpong
         }
+
+    def _ensure_animation_loaded(self, name: str):
+        anim = self.animations[name]
+        if anim['frames'] is not None:
+            return anim
+
+        frames_factory = anim.get('frames_factory')
+        if frames_factory is None:
+            anim['frames'] = []
+        else:
+            anim['frames'] = frames_factory()
+
+        if anim['durations'] is None:
+            anim['durations'] = [anim['speed']] * len(anim['frames'])
+
+        anim['frame_count'] = len(anim['frames'])
+        return anim
+
+    def get_animation_frame_count(self, name: str) -> int:
+        anim = self._ensure_animation_loaded(name)
+        return len(anim['frames'])
         
     def set_animation(self, name: str, reset: bool = True, reverse: bool = False):
         """Switch to a named animation, optionally resetting playback."""
         if name not in self.animations:
             raise KeyError(f"Animation not found: {name}")
         if name != self.current_animation or reset:
+            anim = self._ensure_animation_loaded(name)
             self.current_animation = name
-            self.current_frame = 0 if not reverse else len(self.animations[name]['frames']) - 1
+            self.current_frame = 0 if not reverse else len(anim['frames']) - 1
             self.elapsed = 0.0
             self.playing = True
             self.finished = False
             self.reverse = reverse
-            self.pingpong = self.animations[name].get('pingpong', False)
+            self.pingpong = anim.get('pingpong', False)
 
     def update(self, dt: float):
         """Advance animation playback by dt seconds."""
         if not self.playing or self.current_animation is None or self.finished:
             return
 
-        anim = self.animations[self.current_animation]
+        anim = self._ensure_animation_loaded(self.current_animation)
         durations = anim['durations']
         frame_count = len(durations)
 
@@ -181,7 +230,7 @@ class Animation:
         """Return the current frame surface, or None if no animation is set."""
         if self.current_animation is None:
             return None
-        anim = self.animations[self.current_animation]
+        anim = self._ensure_animation_loaded(self.current_animation)
         if len(anim['frames']) == 0:
             return None
         idx = max(0, min(self.current_frame, len(anim['frames']) - 1))
