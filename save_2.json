@@ -3,26 +3,26 @@
     "score": 0,
     "intro_cutscene_seen": true,
     "player_position": [
-        756,
+        -291,
         -1351
     ],
     "inventory": [],
-    "player_health": 1,
-    "player_silk": 0,
+    "player_health": 5,
+    "player_silk": 9,
     "player_facing_right": true,
     "player_respawn_position": [
-        741,
+        731,
         449
     ],
     "mossgrub_position": [
-        53,
+        469,
         -1301
     ],
     "mossgrub_health": 1000,
     "player_position_space": "world",
     "mossmother_position": [
-        599,
-        -1488
+        -138,
+        -1750
     ],
-    "mossmother_health": 3000
+    "mossmother_health": 2952
 }

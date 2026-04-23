@@ -3,6 +3,8 @@ import pygame
 from typing import Callable, List, Optional, Tuple, Dict
 
 class Animation:
+    """Spritesheet-based animation player with lazy frame loading and per-frame duration support."""
+
     _sprite_sheet_cache: Dict[str, pygame.Surface] = {}
 
     def __init__(
@@ -40,6 +42,7 @@ class Animation:
         self._frame_cache: Dict[Tuple[int, int, bool, float], pygame.Surface] = {}
 
     def _get_sprite_sheet(self) -> pygame.Surface:
+        """Load the spritesheet from disk or return the cached copy."""
         cached_sheet = self._sprite_sheet_cache.get(self.sprite_sheet_path)
         if cached_sheet is None:
             cached_sheet = pygame.image.load(self.sprite_sheet_path).convert_alpha()
@@ -136,6 +139,7 @@ class Animation:
         }
 
     def _ensure_animation_loaded(self, name: str):
+        """Lazily extract frames for an animation the first time it is used."""
         anim = self.animations[name]
         if anim['frames'] is not None:
             return anim
@@ -153,6 +157,7 @@ class Animation:
         return anim
 
     def get_animation_frame_count(self, name: str) -> int:
+        """Return the number of frames in the named animation."""
         anim = self._ensure_animation_loaded(name)
         return len(anim['frames'])
         

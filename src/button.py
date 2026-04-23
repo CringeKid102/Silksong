@@ -4,6 +4,8 @@ from asset_paths import resolve_image_path
 from animation import Animation
 
 class Button:
+    """Animated menu button with hover and press pointer animations."""
+
     def __init__(self, x: int, y: int, text: str, color: Tuple[int,int,int], font_path: Optional[str] = None, font_size: int = 32):
         """Create a button with animated pointer indicators."""
         self.x = x

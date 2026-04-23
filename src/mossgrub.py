@@ -2,22 +2,22 @@ import pygame
 from animation import Animation
 from audio import AudioManager
 from asset_paths import resolve_image_path
+import config
 
 class MossGrub:
     """Basic patrol enemy that walks back and forth."""
-
-    FRAME_WIDTH = 128
-    FRAME_HEIGHT = 101
-    ANIMATION_SCALE = 0.45
     
     def __init__(self, x, y, screen_width, screen_height):
         """Create a MossGrub at the given position."""
         image_path = resolve_image_path("spritesheet/enemy/mossgrub.png")
+        frame_width = 128
+        frame_height = 101
+        anim_scale = 0.45 * config.scale_y
         self.animation = Animation(
             image_path,
-            frame_width=self.FRAME_WIDTH,
-            frame_height=self.FRAME_HEIGHT,
-            scale=self.ANIMATION_SCALE,
+            frame_width=frame_width,
+            frame_height=frame_height,
+            scale=anim_scale,
         )
         self._load_mossgrub_animation()
         self.animations = self.animation.animations
@@ -79,12 +79,22 @@ class MossGrub:
         self.animation.add_animation("death_land_left", row=1, start_col=4, num_frames=3, flip_x=True, speed=0.1, loop=False)
 
     def _set_animation(self, name, reset=False):
+        """Switch to the named animation only if it differs from the current one."""
         if self.current_animation_name != name or reset:
             self.current_animation_name = name
             self.animation.set_animation(name, reset=True)
             self.image = self.animation.get_current_frame()
 
     def _advance_animation(self, dt):
+        """
+        Tick the animation and update the display image.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+
+        Returns:
+            bool: True if the current animation has finished.
+        """
         self.animation.update(dt)
         current_frame = self.animation.get_current_frame()
         if current_frame is not None:
@@ -92,6 +102,12 @@ class MossGrub:
         return self.animation.is_finished()
 
     def _update_animation(self, dt):
+        """
+        Run the full animation state machine for movement, turns, and death.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         if self.is_dying:
             if self.facing_right == 1:
                 self.display_facing_right = True

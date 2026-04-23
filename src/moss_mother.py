@@ -20,7 +20,7 @@ class MossMother:
             image_path,
             frame_width=self.FRAME_WIDTH,
             frame_height=self.FRAME_HEIGHT,
-            scale=self.ANIMATION_SCALE,
+            scale=self.ANIMATION_SCALE * config.scale_y,
         )
         self._load_animations()
         self.animations = self.animation.animations
@@ -130,6 +130,7 @@ class MossMother:
         self._camera_velocity = [0, 0]
 
     def _load_animations(self):
+        """Register all spritesheet animations for the Moss Mother."""
         self.animation.add_animation("turn_right", row=0, start_col=0, num_frames=5, speed=0.07, loop=False)
         self.animation.add_animation("turn_left", row=0, start_col=0, num_frames=5, flip_x=True, speed=0.07, loop=False)
         self.animation.add_animation("idle_right", row=0, start_col=5, num_frames=5, speed=0.12, loop=True)
@@ -148,12 +149,22 @@ class MossMother:
         self.animation.add_animation("stun_ground_left", row=3, start_col=1, num_frames=1, flip_x=True, speed=0.1, loop=False)
 
     def _set_animation(self, name, reset=False):
+        """Switch to the named animation only if it differs from the current one."""
         if self.current_animation_name != name or reset:
             self.current_animation_name = name
             self.animation.set_animation(name, reset=True)
             self.image = self.animation.get_current_frame()
 
     def _advance_animation(self, dt):
+        """
+        Tick the animation and update the display image.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+
+        Returns:
+            bool: True if the current animation has finished.
+        """
         self.animation.update(dt)
         current_frame = self.animation.get_current_frame()
         if current_frame is not None:
@@ -161,6 +172,12 @@ class MossMother:
         return self.animation.is_finished()
 
     def _get_animation_state_name(self):
+        """
+        Determine the animation state string from the current behaviour flags.
+
+        Returns:
+            str: One of "stun_ground", "stun_fall", "wall_attack", "charge", "charge_end", or "idle".
+        """
         if self.is_staggered:
             return "stun_ground" if self.on_ground else "stun_fall"
         if self.is_crying:
@@ -172,6 +189,12 @@ class MossMother:
         return "idle"
 
     def _update_animation(self, dt):
+        """
+        Run the full animation state machine and advance the current animation.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         animation_state = self._get_animation_state_name()
 
         if animation_state == "wall_attack":
@@ -215,6 +238,16 @@ class MossMother:
         self._advance_animation(dt)
 
     def _world_position(self, camera_x=0, camera_y=0):
+        """
+        Convert the boss screen-space rect to world coordinates.
+
+        Args:
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+
+        Returns:
+            tuple[int, int]: World (x, y) of the boss center.
+        """
         world_x = self.rect.centerx + int(camera_x)
         world_y = self.rect.centery + int(camera_y)
         return world_x, world_y
@@ -261,6 +294,7 @@ class MossMother:
         return triggered
 
     def _resolve_horizontal_collisions(self, collision_rects, camera_x=0, camera_y=0):
+        """Push the boss out of any wall colliders it overlaps horizontally."""
         if not collision_rects:
             return
 
@@ -298,6 +332,7 @@ class MossMother:
             self.rect.x = int(world_rect.x - camera_x)
 
     def _resolve_vertical_collisions(self, collision_rects, camera_x=0, camera_y=0):
+        """Handle floor landing and ceiling collisions for stagger fall physics."""
         if not collision_rects:
             return
 
@@ -325,6 +360,17 @@ class MossMother:
         self.on_ground = landed
 
     def _find_bfs_next_point(self, start_world, target_world, collision_rects):
+        """
+        Use BFS on a coarse grid to find the next step toward the target.
+
+        Args:
+            start_world (tuple[float, float]): Current world position of the boss.
+            target_world (tuple[float, float]): Desired world destination.
+            collision_rects (list[pygame.Rect]): Solid collision rectangles.
+
+        Returns:
+            tuple[float, float]: World position of the next BFS step.
+        """
         if collision_rects is None:
             return target_world
 
@@ -425,6 +471,7 @@ class MossMother:
         # Begin the attack already aligned at the nearest edge-middle point.
         self._set_world_center(self.attack_start[0], self.attack_start[1], camera_x=camera_x, camera_y=camera_y)
     def _end_attack(self, player_world_rect):
+        """End the current attack and set up a smooth reposition toward the opposite side."""
         self.is_attacking = False
         self.attack_elapsed = 0.0
         self.attack_timer = 0.0
@@ -536,6 +583,12 @@ class MossMother:
             
 
     def _update_reposition(self, dt):
+        """
+        Lerp the boss toward the reposition target.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         if not self.is_repositioning:
             return
 
@@ -554,6 +607,18 @@ class MossMother:
             self.rect.centery = int(ty)
 
     def _update_flight_path(self, dt, player_world_rect, collision_rects, camera_x=0, camera_y=0, min_x=0, max_x=None):
+        """
+        Pathfind toward the player and move the boss, resolving collisions.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+            player_world_rect (pygame.Rect): Player's world-space rect.
+            collision_rects (list[pygame.Rect]): Solid collision rectangles.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+            min_x (int): Left arena boundary in screen space.
+            max_x (int | None): Right arena boundary in screen space.
+        """
         if player_world_rect is None:
             return
 
@@ -593,6 +658,18 @@ class MossMother:
                 self.facing_right = True
 
     def _apply_gravity_and_collision(self, dt, collision_rects, camera_x=0, camera_y=0):
+        """
+        Apply gravity and resolve floor collisions during the stagger fall.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+            collision_rects (list[pygame.Rect]): Solid collision rectangles.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+
+        Returns:
+            bool: True if the boss landed on the floor this frame.
+        """
         # Falling behavior during stagger state.
         self.velocity_y += self.gravity * dt
         self.rect.y += int(self.velocity_y * dt)
@@ -638,6 +715,14 @@ class MossMother:
         return landed
 
     def take_damage(self, damage, knockback_direction=0, apply_knockback=True):
+        """
+        Apply damage and optionally knockback; trigger stagger at health thresholds.
+
+        Args:
+            damage (int): Amount of damage to deal.
+            knockback_direction (int): -1 for left, 0 for none, 1 for right.
+            apply_knockback (bool): Whether to apply horizontal knockback.
+        """
         if damage <= 0:
             return
 
@@ -657,6 +742,13 @@ class MossMother:
             self.stagger_count += 1
 
     def reset_position(self, x, y):
+        """
+        Reset all boss state and place it at the given position.
+
+        Args:
+            x (int): Screen X for the bottom-center of the boss.
+            y (int): Screen Y for the bottom-center of the boss.
+        """
         self.rect.midbottom = (x, y)
         self.velocity_x = 0
         self.velocity_y = 0
@@ -691,6 +783,21 @@ class MossMother:
         self._set_animation("idle_right", reset=True)
 
     def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0, player_world_rect=None, arena_rect=None):
+        """
+        Run the full boss update tick: timers, AI, movement, and animation.
+
+        Args:
+            min_x (int): Left boundary in screen space.
+            max_x (int): Right boundary in screen space.
+            dt (float): Elapsed time in seconds since the last frame.
+            collision_rects (list[pygame.Rect] | None): Solid collision rectangles.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+            camera_dx (float): Camera movement this frame in X.
+            camera_dy (float): Camera movement this frame in Y.
+            player_world_rect (pygame.Rect | None): Player's world-space rect.
+            arena_rect (pygame.Rect | None): Boss arena bounds.
+        """
         self.rect.x -= int(camera_dx)
         self.rect.y -= int(camera_dy)
 
@@ -824,6 +931,7 @@ class MossMother:
         self._update_animation(dt)
 
     def draw(self, screen, look_y_offset=0):
+        """Draw the boss sprite on screen, offset by the vertical look pan."""
         draw_rect = self.rect.copy()
         draw_rect.y += look_y_offset
         screen.blit(self.image, draw_rect)

@@ -23,6 +23,11 @@ class ThreadedVideoCapture:
     """Prefetch video frames on a worker thread so the game loop never blocks on OpenCV I/O."""
 
     def __init__(self, path):
+        """
+        Open the video file and start the reader thread if successful. The latest frame is cached for immediate retrieval by the main thread, and the reader thread is signaled to read the next frame as soon as the main thread consumes it. The reader thread also tracks when the video ends so the main thread can stop waiting for new frames.
+        arg:
+            path (str): The file path to the video to open.
+        """
         self.capture = cv2.VideoCapture(path)
         self._lock = threading.Lock()
         self._stop_event = threading.Event()
@@ -45,6 +50,7 @@ class ThreadedVideoCapture:
             self._thread.start()
 
     def _reader_loop(self):
+        """Worker thread loop that waits for a signal to read the next frame, reads it, caches it, and signals the main thread that a new frame is ready. Also tracks when the video ends so the main thread can stop waiting for new frames."""
         while not self._stop_event.is_set():
             if not self._request_frame.wait(0.1):
                 continue
@@ -63,10 +69,21 @@ class ThreadedVideoCapture:
                 break
 
     def isOpened(self):
+        """
+        Return True if the video file was successfully opened and the reader thread is running.
+        returns:
+            bool: True if the video file was successfully opened and the reader thread is running, False otherwise.
+        """
         return self.capture is not None and self.capture.isOpened() and not self._released
 
     def read(self, timeout=0.0):
-        """Return `(frame, ended)` where `frame=None` means not ready yet or stream ended."""
+        """
+        Return `(frame, ended)` where `frame=None` means not ready yet or stream ended.
+        args:
+            timeout (float): How long to wait for the next frame to be ready before giving up
+        returns:
+            tuple: (frame, ended) where `frame` is the next video frame as a numpy array or None if not ready or stream ended, and `ended` is a boolean that is True if the video has ended and no more frames will be available.
+        """
         if not self.isOpened():
             return None, True
 
@@ -84,6 +101,7 @@ class ThreadedVideoCapture:
         return frame, ended
 
     def release(self):
+        """Release the video capture and stop the reader thread."""
         if self._released:
             return
 
@@ -98,13 +116,22 @@ class ThreadedVideoCapture:
             self.capture.release()
 
 class Silksong:
+    """Main game class that manages the game loop, state, rendering, and subsystems."""
 
     # Class-level image cache to avoid reloading
     _image_cache = {}
     
     @classmethod
     def _load_and_scale_image(cls, path, width=None, height=None):
-        """Load an image, optionally scaling it, while using cache to avoid reloading."""
+        """
+        Load an image, optionally scaling it, while using cache to avoid reloading.
+        arg:
+            path (str): The file path to the image to load.
+            width (int, optional): The desired width to scale the image to. If None, no horizontal scaling is applied.
+            height (int, optional): The desired height to scale the image to. If None, no vertical scaling is applied.
+        returns:
+            pygame.Surface: The loaded (and possibly scaled) image surface.
+        """
         cache_key = (path, width, height)
         if cache_key not in cls._image_cache:
             img = pygame.image.load(path)
@@ -170,7 +197,11 @@ class Silksong:
                 self._rebuild_collider_map_overlays(int(self.world_ground_y))
 
     def _rebuild_collider_map_overlays(self, base_y):
-        """Recompute world-space origins for the collider map overlay layers."""
+        """
+        Recompute world-space origins for the collider map overlay layers.
+        args:
+            base_y (int): The world Y coordinate of the main ground level, used to split upper and lower collider layers.
+        """
         if not getattr(self, "_collider_map_layers", None):
             return
 
@@ -413,7 +444,12 @@ class Silksong:
             self.player.bench.rect.midbottom = (self.screen.get_width() // 2, base_y)
 
     def _sync_camera_lock_to_boss_arena(self, player_world_rect, dt):
-        """Lock the camera to the arena center while Hornet is inside the boss room."""
+        """
+        Lock the camera to the arena center while Hornet is inside the boss room.
+        args:
+            player_world_rect (pygame.Rect): The player's rectangle in world coordinates, used to determine if they are inside the boss arena.
+            dt (float): The delta time since the last frame, used for smooth camera interpolation.
+        """
         if not self.player or not self.boss_arena_rect or not self.boss_arena_camera:
             self.camera_locked_to_arena = False
             
@@ -456,11 +492,23 @@ class Silksong:
         )
 
     def _is_floor_collider(self, collider_rect):
-        """Return True for horizontal ground/platform colliders and False for vertical walls."""
+        """
+        Return True for horizontal ground/platform colliders and False for vertical walls.
+        args:
+            collider_rect (pygame.Rect): The rectangle representing the collider to check. 
+        returns:
+            bool: True if the collider is a horizontal floor/platform, False if it is a vertical wall.
+        """
         return collider_rect.width >= collider_rect.height
 
     def _get_ground_top_at_world_x(self, world_x):
-        """Return the top Y of the highest floor collider under the given world X."""
+        """
+        Return the top Y of the highest floor collider under the given world X.
+        args:
+            world_x (int): The world X coordinate to check.
+        returns:
+            int or None: The top Y of the highest floor collider under the given world X, or None if no collider is found.
+        """
         top_y = None
         for ground_rect in self.ground_colliders:
             if not self._is_floor_collider(ground_rect):
@@ -471,7 +519,13 @@ class Silksong:
         return top_y
 
     def _get_colliding_ground_top_for_world_rect(self, world_rect):
-        """Return the top Y of the floor collider intersecting the given world-space rect."""
+        """
+        Return the top Y of the floor collider intersecting the given world-space rect.
+        args:
+            world_rect (pygame.Rect): The rectangle in world coordinates to check for collision.
+        returns:
+            int or None: The top Y of the floor collider intersecting the given world-space rect, or None if no collider is found.
+        """
         colliding_top = None
         for ground_rect in self.ground_colliders:
             if not self._is_floor_collider(ground_rect):
@@ -508,7 +562,12 @@ class Silksong:
         self.player.on_ground = True
 
     def _reset_player_camera_follow(self, world_x=None, world_y=None):
-        """Return Hornet to the normal follow-camera behavior after arena lock or respawn."""
+        """
+        Return Hornet to the normal follow-camera behavior after arena lock or respawn.
+        args:
+            world_x (int or None): The world X coordinate to reset the camera to. If None, uses the player's current world X.
+            world_y (int or None): The world Y coordinate to reset the camera to. If None, uses the player's current world Y.
+        """
         if not self.player:
             return
 
@@ -529,7 +588,11 @@ class Silksong:
         self.camera_locked_to_arena = False
 
     def _clamp_mossgrub_above_colliding_ground(self, world_x=None):
-        """Push MossGrub above the ground if it is currently inside a collider."""
+        """
+        Push MossGrub above the ground if it is currently inside a collider.
+        args:
+            world_x (int or None): The world X coordinate to check. If None, uses the MossGrub's current world X.
+        """
         if not self.mossgrub:
             return
         
@@ -550,7 +613,12 @@ class Silksong:
         self.mossgrub.on_ground = True
 
     def _set_mossgrub_patrol_on_platform(self, platform_rect, spawn_world_x=None):
-        """Place MossGrub on a specific world-space platform and clamp its patrol to that surface."""
+        """
+        Place MossGrub on a specific world-space platform and clamp its patrol to that surface.
+        args:
+            platform_rect (pygame.Rect): The rectangle representing the platform in world coordinates.
+            spawn_world_x (int or None): The world X coordinate to spawn MossGrub at. If None, uses the center of the platform.
+        """
         if not self.mossgrub or platform_rect is None:
             self.mossgrub_patrol_left = None
             self.mossgrub_patrol_right = None
@@ -604,13 +672,22 @@ class Silksong:
             self.mouse_locked = False
 
     def trigger_camera_shake(self, duration=0.6, intensity=12.0):
-        """Trigger a reusable screen shake effect for dramatic moments."""
+        """
+        Trigger a reusable screen shake effect for dramatic moments.
+        args:
+            duration (float): The duration of the camera shake in seconds.
+            intensity (float): The intensity of the camera shake.
+        """
         self.camera_shake_timer = max(self.camera_shake_timer, float(duration))
         self.camera_shake_duration = max(self.camera_shake_duration, float(duration))
         self.camera_shake_intensity = max(self.camera_shake_intensity, float(intensity))
 
     def _update_camera_shake(self, dt):
-        """Advance the camera shake effect and update the render offset."""
+        """
+        Advance the camera shake effect and update the render offset.
+        args:
+            dt (float): The time delta in seconds since the last update.
+        """
         if self.camera_shake_timer > 0.0:
             self.camera_shake_timer = max(0.0, self.camera_shake_timer - dt)
             fade = self.camera_shake_timer / max(0.001, self.camera_shake_duration)
@@ -655,7 +732,12 @@ class Silksong:
         self._spawn_mossmother_cry_rocks()
 
     def _update_falling_rocks(self, dt, player_world_rect):
-        """Advance falling cry-attack rocks, damage Hornet on contact, and spawn a MossGrub on one impact."""
+        """
+        Advance falling cry-attack rocks, damage Hornet on contact, and spawn a MossGrub on one impact.
+        args:
+            dt (float): The time delta in seconds since the last update.
+            player_world_rect (pygame.Rect): The player's world-space rectangle for collision detection.
+        """
         if not self.falling_rocks:
             return
 
@@ -702,6 +784,11 @@ class Silksong:
             }
 
     def update_title_screen(self, dt):
+        """
+        Update the title screen elements, including buttons and particle effects.
+        args:
+            dt (float): The time delta in seconds since the last update.
+        """
         for button in self.buttons.values():
             button.update(dt)
         
@@ -710,9 +797,19 @@ class Silksong:
         self.particle_system.update(dt)
     
     def update_settings(self, dt):
+        """
+        Update the settings menu elements and handle interactions.
+        args:
+            dt (float): The time delta in seconds since the last update.
+        """
         self.settings_menu.update(dt)
     
     def update_save_files(self, dt):
+        """
+        Update the save files menu elements and handle interactions.
+        args:
+            dt (float): The time delta in seconds since the last update.
+        """
         self.save_file.update(dt)
 
     def _release_cutscene_resources(self):
@@ -727,7 +824,11 @@ class Silksong:
         self.cutscene_frame_timer = 0.0
 
     def _cache_cutscene_frame(self, frame):
-        """Convert an OpenCV frame into a screen-ready pygame surface."""
+        """
+        Convert an OpenCV frame into a screen-ready pygame surface.
+        args:
+            frame (numpy.ndarray): The OpenCV frame to convert.
+        """
         rgb_frame = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
         frame_h, frame_w = rgb_frame.shape[:2]
 
@@ -749,7 +850,13 @@ class Silksong:
         self.cutscene_rect = self.cutscene_surface.get_rect(center=(config.screen_width // 2, config.screen_height // 2))
 
     def _read_next_cutscene_frame(self, wait_timeout=0.0):
-        """Read the next prefetched frame of the intro cinematic into the draw cache."""
+        """
+        Read the next prefetched frame of the intro cinematic into the draw cache.
+        args:
+            wait_timeout (float): The maximum time to wait for a frame in seconds.
+        returns:
+            bool: True if a new frame was read and cached, False if the cutscene has
+            ended, or None if no new frame is available yet but the cutscene is still ongoing."""
         if self.cutscene_capture is None or not self.cutscene_capture.isOpened():
             return False
 
@@ -783,7 +890,11 @@ class Silksong:
         self.save_file.save_game_file(current_state, self.current_slot)
 
     def _start_intro_cutscene(self, next_state="game"):
-        """Open the intro cinematic before gameplay begins."""
+        """
+        Open the intro cinematic before gameplay begins.
+        args:
+            next_state (str): The state to transition to after the cutscene ends.
+        """
         self.cutscene_next_state = next_state
         self._release_cutscene_resources()
 
@@ -807,7 +918,11 @@ class Silksong:
         self.change_state("cutscene")
     
     def update_cutscene(self, dt):
-        """Advance the intro cinematic and transition into gameplay when it ends."""
+        """
+        Advance the intro cinematic and transition into gameplay when it ends.
+        args:
+            dt (float): The time elapsed since the last update in seconds.
+        """
         if self.transition_manager.active:
             return
 
@@ -829,6 +944,11 @@ class Silksong:
             self.cutscene_frame_timer -= frame_duration
 
     def update_game(self, dt):
+        """
+        Update the main game state, including player, enemies, camera, and interactions.
+        args:
+            dt (float): The time elapsed since the last update in seconds.
+        """
         self.game_back_button.update(dt)
 
         if self.player is None:
@@ -894,6 +1014,7 @@ class Silksong:
             if interact_pressed and not self._bench_interact_key_down:
                 player.start_rest()
                 self.respawn_position = [int(player_world_rect.x), int(player_world_rect.y)]
+                self._reset_encounter_state()
                 self.save_current_game_state(force=True)
 
         self._bench_interact_key_down = interact_pressed
@@ -991,7 +1112,7 @@ class Silksong:
                         player.rebound_from_down_attack(enemy_rect=mossmother_world, camera_y=self.camera_y)
 
         # Contact damage: compare both in screen space
-        if self.mossgrub and self.mossgrub.health > 0 and player.rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
+        if self.mossgrub and not self.mossgrub.is_dying and self.mossgrub.health > 0 and player.rect.colliderect(self.mossgrub.rect) and self.player_contact_damage_timer <= 0.0:
             mossgrub_world = self.mossgrub.rect.copy()
             mossgrub_world.x += int(self.camera_x)
             mossgrub_world.y += int(self.camera_y)
@@ -1037,6 +1158,10 @@ class Silksong:
 
         if self.mossgrub:
             self.mossgrub.health = self.mossgrub.max_health
+            self.mossgrub.is_dying = False
+            self.mossgrub.death_landed = False
+            self.mossgrub.death_finished = False
+            self.mossgrub.velocity_y = 0
             self._set_mossgrub_spawn_and_patrol()
 
         if self.mossmother:
@@ -1046,6 +1171,7 @@ class Silksong:
                 self.mossmother.reset_position(arena_spawn_x, arena_spawn_y)
             else:
                 self.mossmother.reset_position(self.mossmother.rect.centerx, self.mossmother.rect.bottom)
+            self.mossmother.health = self.mossmother.max_health
 
     def respawn_player(self):
         """Respawn Hornet at the last bench rest position and reset the encounter."""
@@ -1065,10 +1191,7 @@ class Silksong:
         self.player.reset_position(self.player.rect.centerx, self.player.rect.bottom)
 
         self.player.health = self.player.max_health
-        self.player.cancel_heal_channel()
-        self.player.is_resting = False
-        self.player.rest_timer = 0.0
-        self.player.on_ground = True
+        self.player._start_respawn_on_bench()
 
         self._reset_encounter_state()
         self.save_current_game_state(force=True)
@@ -1140,8 +1263,17 @@ class Silksong:
         self._last_saved_signature = state_signature
     
     def change_state(self, new_state):
-        """Transition to a new game state with a black fade."""
+        """
+        Transition to a new game state with a black fade.
+        Args:
+            new_state (str): The target game state to transition to.
+        """
         def on_state_change(target_state):
+            """
+            Callback to update the current state at the midpoint of the transition.
+            Args:
+                target_state (str): The state to switch to after the fade-out completes.
+            """
             self.state = target_state
             # Refresh save slot cache when entering save files screen
             if target_state == "save files":
@@ -1157,6 +1289,7 @@ class Silksong:
         )
     
     def draw_title_screen(self):
+        """Render the title screen, including background, particles, title image, and buttons."""
         # Draw background
         self.screen.blit(self.background_image, (0, 0))
         
@@ -1180,14 +1313,17 @@ class Silksong:
             button.draw(self.screen)
                 
     def draw_settings(self):
+        """Render the settings overlay on top of the background."""
         self.screen.blit(self.background_image, (0, 0))
-        self.settings_menu.draw(self.screen, config.font)
+        self.settings_menu.draw(self.screen, self.settings_menu.font)
 
     def draw_save_file(self):
+        """Render the save-file selection screen."""
         self.screen.blit(self.background_image, (0, 0))
         self.save_file.draw(self.screen)
     
     def draw_cutscene(self):
+        """Render the active cutscene frame with a skip hint."""
         self.screen.fill((0, 0, 0))
 
         if self.cutscene_surface and self.cutscene_rect:
@@ -1199,6 +1335,7 @@ class Silksong:
         self.screen.blit(skip_text, skip_rect)
     
     def draw_game(self):
+        """Render the main game world, HUD, and all active entities."""
         self._ensure_game_render_assets()
 
         # Draw background (could add parallax later)
@@ -1349,7 +1486,11 @@ class Silksong:
         pygame.display.flip()
 
     def update(self, dt):
-        """Update the current game state by dt seconds."""
+        """
+        Update the current game state by dt seconds.
+        args:
+            dt (float): The time elapsed since the last update in seconds.
+        """
         self._update_mouse_lock()
         self._update_camera_shake(dt)
 
@@ -1580,6 +1721,7 @@ class Silksong:
                         self.change_state("title screen")
 
     def run(self):
+        """Run the main game loop until the window is closed."""
         while self.running:
             dt = self.clock.tick(config.fps) / 1000.0
 

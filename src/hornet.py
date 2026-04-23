@@ -13,7 +13,7 @@ class Hornet:
         image_path = resolve_image_path("hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
-        scale_factor = 0.3
+        scale_factor = 0.3 * config.scale_y
         scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
         self.image = pygame.transform.scale(self.image, scaled_size)
         self.image_flipped = pygame.transform.flip(self.image, True, False)
@@ -49,7 +49,9 @@ class Hornet:
         self.wall_jump_power_x = 450.0
         # Use full jump lift so repeated wall jumps climb quickly.
         self.wall_jump_power_y = self.jump_power
-        self.wall_slide_speed = 120.0
+        self.wall_slide_speed = 400.0
+        # Acceleration rate during wall slide: reaches wall_slide_speed over the 8-frame animation (8 * 0.06s = 0.48s)
+        self.wall_slide_acceleration = self.wall_slide_speed / 0.48  # ~250 px/s²
         self._wall_jump_timer = 0.0
         self._wall_jump_cooldown = 0.08
 
@@ -62,6 +64,9 @@ class Hornet:
         self._ledge_target_world_x = None
         self._ledge_target_world_y = 0
         self._ledge_wall_direction = 0
+        self._mantle_cling_world_x = None
+        self._mantle_cling_world_bottom = None
+        self._mantle_cling_min_timer = 0.0
         self._pressing_down = False
 
         # Camera correction for wall collisions
@@ -146,161 +151,235 @@ class Hornet:
         self.active_attack_visual_key = None
         self.pending_attack_effect_start = False
         self.pending_attack_effect_start_frame = 0
+        self._locked_attack_anim_name = None
         self.active_pose_animation = None
         self.active_pose_effect_animation = None
         self.active_pose_key = None
         self.was_on_ground = False
         self.landed_this_frame = False
         self.jump_pose_active = False
+        anim_scale = 0.5 * config.scale_y
         self.attack_1_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_1.png"),
             frame_width=256,
             frame_height=181,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.attack_2_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_2.png"),
             frame_width=244,
             frame_height=182,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.attack_down_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_down.png"),
             frame_width=158,
             frame_height=227,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.attack_down_effect_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_down_effect.png"),
             frame_width=251,
             frame_height=256,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.attack_effect_1_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_effect_1.png"),
             frame_width=369,
             frame_height=162,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.attack_effect_2_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_effect_2.png"),
             frame_width=381,
             frame_height=139,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.attack_up_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_up.png"),
             frame_width=165,
             frame_height=235,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.attack_up_effect_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_up_effect.png"),
             frame_width=170,
             frame_height=329,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.death_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_death.png"),
             frame_width=257,
             frame_height=231,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.charged_effect_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_charged_effect.png"),
             frame_width=316,
             frame_height=294,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.fall_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_fall.png"),
             frame_width=151,
             frame_height=177,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.get_off_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_get_off.png"),
             frame_width=214,
             frame_height=208,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.heal_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_heal.png"),
             frame_width=193,
             frame_height=232,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.heal_alt_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_heal_alt.png"),
             frame_width=195,
             frame_height=225,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.heal_effect_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_heal_effect.png"),
             frame_width=402,
             frame_height=314,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.hit_flash_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_hit_flash.png"),
             frame_width=661,
             frame_height=280,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.idle_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_idle.png"),
             frame_width=183,
             frame_height=215,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.jump_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_jump.png"),
             frame_width=155,
             frame_height=198,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.jump_effect_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_jump_effect.png"),
             frame_width=179,
             frame_height=141,
-            scale=0.3,
+            scale=anim_scale,
+        )
+        self.rebound_1_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_rebound_1.png"),
+            frame_width=222,
+            frame_height=168,
+            scale=anim_scale,
+        )
+        self.rebound_2_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_rebound_2.png"),
+            frame_width=222,
+            frame_height=187,
+            scale=anim_scale,
+        )
+        self.rebound_effect_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_rebound_effect.png"),
+            frame_width=247,
+            frame_height=257,
+            scale=anim_scale,
+        )
+        self.rebound_land_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_rebound_land.png"),
+            frame_width=172,
+            frame_height=141,
+            scale=anim_scale,
         )
         self.land_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_land.png"),
             frame_width=195,
             frame_height=216,
-            scale=0.3,
+            scale=anim_scale,
         )
-        self.look_down_better_anim = Animation(
+        self.recoil_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_recoil.png"),
+            frame_width=274,
+            frame_height=172,
+            scale=anim_scale,
+        )
+        self.respawn_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_respawn.png"),
+            frame_width=207,
+            frame_height=203,
+            scale=anim_scale,
+        )
+        self.roar_lock_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_roar_lock.png"),
+            frame_width=210,
+            frame_height=210,
+            scale=anim_scale,
+        )
+        self.sit_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_sit.png"),
+            frame_width=214,
+            frame_height=208,
+            scale=anim_scale,
+        )
+        self.turn_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_turn.png"),
+            frame_width=205,
+            frame_height=225,
+            scale=anim_scale,
+        )
+        self.walk_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_walk.png"),
+            frame_width=177,
+            frame_height=218,
+            scale=anim_scale,
+        )
+        self.wall_slide_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_wall_slide.png"),
+            frame_width=149,
+            frame_height=206,
+            scale=anim_scale,
+        )
+        self.wall_jump_anim = Animation(
+            resolve_image_path("spritesheet/hornet/hornet_walljump.png"),
+            frame_width=199,
+            frame_height=223,
+            scale=anim_scale,
+        )
+        self.look_down_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_look_down.png"),
             frame_width=183,
             frame_height=223,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.look_up_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_look_up.png"),
             frame_width=198,
             frame_height=185,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.mantle_cancel_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_mantle_cancel.png"),
             frame_width=222,
             frame_height=192,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.mantle_cling_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_mantle_cling.png"),
             frame_width=204,
             frame_height=243,
-            scale=0.3,
+            scale=anim_scale,
         )
         self.mantle_vault_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_mantle_vault.png"),
             frame_width=196,
             frame_height=250,
-            scale=0.3,
+            scale=anim_scale,
         )
         self._load_hornet_animation()
         self.attack_animation_offsets = {
@@ -322,7 +401,18 @@ class Hornet:
             "fall": (0, 0),
             "idle": (0, 0),
             "jump": (0, 0),
+            "wall_jump": (0, 0),
+            "wall_slide": (0, 0),
+            "walk": (0, 0),
+            "turn": (0, 0),
             "land": (0, 0),
+            "rebound_1": (0, 0),
+            "rebound_2": (0, 0),
+            "rebound_land": (0, 0),
+            "recoil": (0, 0),
+            "respawn": (0, 0),
+            "roar_lock": (0, 0),
+            "sit": (0, 0),
             "look_down_intro": (0, 0),
             "look_down_loop": (0, 0),
             "look_down_release": (0, 0),
@@ -339,11 +429,13 @@ class Hornet:
             "heal_air": (0, 0),
             "charged": (0, 0),
             "jump": (0, 0),
+            "rebound": (0, 0),
             "hit_flash": (0, 0),
         }
         self.charged_effect_active = False
         self.jump_effect_active = False
         self.hit_flash_active = False
+        self.rebound_effect_active = False
         self.attack_hit_mossgrub = False
         self.attack_hit_mossmother = False
         self.attack_recoil_applied = False
@@ -352,12 +444,33 @@ class Hornet:
         self.down_attack_rebound_timer = 0.0
         self.down_attack_jump_lock_duration = 0.3
         self.down_attack_jump_lock_timer = 0.0
+        self.rebound_horizontal_speed = 320.0
+        self.active_rebound_key = None
+        self.rebound_land_active = False
+        self.rebound_land_pending = False
+        self.recoil_active = False
+        self.respawn_active = False
+        self.turn_pose_active = False
+        self.move_input_x = 0
 
         #Respawn point
         self.respawn_x = x
         self.respawn_y = y
     
     def _repeat_tail_frames(self, animation, base_frame_count, total_frame_count, tail_repeat_count, flip_x=False):
+        """
+        Pad an animation to total_frame_count by repeating the last tail_repeat_count frames.
+
+        Args:
+            animation: Animation object to extract base frames from.
+            base_frame_count (int): Number of frames to extract from the sheet.
+            total_frame_count (int): Desired total frame count after padding.
+            tail_repeat_count (int): Number of tail frames to cycle.
+            flip_x (bool): Whether to flip frames horizontally.
+
+        Returns:
+            list: Frame list padded to total_frame_count.
+        """
         frames = animation.extract_frames(0, 0, base_frame_count, flip_x=flip_x)
         tail_frames = frames[-tail_repeat_count:]
         while len(frames) < total_frame_count:
@@ -368,6 +481,18 @@ class Hornet:
         return frames
 
     def _combine_rows(self, animation, rows, frame_count_per_row, flip_x=False):
+        """
+        Combine frames from multiple spritesheet rows into a single list.
+
+        Args:
+            animation: Animation object to extract frames from.
+            rows (list[int]): Row indices to extract in order.
+            frame_count_per_row (int): Number of frames per row.
+            flip_x (bool): Whether to flip frames horizontally.
+
+        Returns:
+            list: Combined frame list from all rows.
+        """
         frames = []
         for row in rows:
             frames.extend(animation.extract_frames(row, 0, frame_count_per_row, flip_x=flip_x))
@@ -411,39 +536,90 @@ class Hornet:
         self.idle_anim.add_animation("left", row=0, start_col=0, num_frames=6, speed=0.07, flip_x=True, loop=True)
         self.jump_anim.add_animation("right", row=0, start_col=0, num_frames=10, speed=0.04, loop=False)
         self.jump_anim.add_animation("left", row=0, start_col=0, num_frames=10, speed=0.04, flip_x=True, loop=False)
-        self.jump_effect_anim.add_animation("right", row=0, start_col=0, num_frames=6, speed=0.03, loop=False)
-        self.jump_effect_anim.add_animation("left", row=0, start_col=0, num_frames=6, speed=0.03, flip_x=True, loop=False)
+        self.jump_effect_anim.add_animation("right", row=0, start_col=0, num_frames=6, speed=0.03, flip_x=True, loop=False)
+        self.jump_effect_anim.add_animation("left", row=0, start_col=0, num_frames=6, speed=0.03, loop=False)
+        self.rebound_1_anim.add_animation("right", row=0, start_col=0, num_frames=9, speed=0.035, loop=False)
+        self.rebound_1_anim.add_animation("left", row=0, start_col=0, num_frames=9, speed=0.035, flip_x=True, loop=False)
+        self.rebound_2_anim.add_animation("right", row=0, start_col=0, num_frames=9, speed=0.035, loop=False)
+        self.rebound_2_anim.add_animation("left", row=0, start_col=0, num_frames=9, speed=0.035, flip_x=True, loop=False)
+        self.rebound_effect_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.03, loop=False)
+        self.rebound_effect_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.03, flip_x=True, loop=False)
+        self.rebound_land_anim.add_animation("right", row=0, start_col=0, num_frames=3, speed=0.04, loop=False)
+        self.rebound_land_anim.add_animation("left", row=0, start_col=0, num_frames=3, speed=0.04, flip_x=True, loop=False)
         self.land_anim.add_animation("right", row=0, start_col=0, num_frames=10, speed=0.03, loop=False)
         self.land_anim.add_animation("left", row=0, start_col=0, num_frames=10, speed=0.03, flip_x=True, loop=False)
-        self.look_down_better_anim.add_animation("intro_right", row=0, start_col=0, num_frames=2, speed=0.04, loop=False)
-        self.look_down_better_anim.add_animation("intro_left", row=0, start_col=0, num_frames=2, speed=0.04, flip_x=True, loop=False)
-        self.look_down_better_anim.add_animation("loop_right", row=0, start_col=2, num_frames=6, speed=0.05, loop=True)
-        self.look_down_better_anim.add_animation("loop_left", row=0, start_col=2, num_frames=6, speed=0.05, flip_x=True, loop=True)
-        self.look_down_better_anim.add_animation("release_right", row=0, start_col=8, num_frames=2, speed=0.05, loop=False)
-        self.look_down_better_anim.add_animation("release_left", row=0, start_col=8, num_frames=2, speed=0.05, flip_x=True, loop=False)
+        self.recoil_anim.add_animation("right", row=0, start_col=0, num_frames=6, speed=0.035, loop=False)
+        self.recoil_anim.add_animation("left", row=0, start_col=0, num_frames=6, speed=0.035, flip_x=True, loop=False)
+        self.respawn_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.06, loop=False)
+        self.respawn_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.06, flip_x=True, loop=False)
+        self.roar_lock_anim.add_animation("right", row=0, start_col=0, num_frames=5, speed=0.05, loop=True)
+        self.roar_lock_anim.add_animation("left", row=0, start_col=0, num_frames=5, speed=0.05, flip_x=True, loop=True)
+        self.sit_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.06, loop=False)
+        self.sit_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.06, flip_x=True, loop=False)
+        self.turn_anim.add_animation("right", row=0, start_col=0, num_frames=6, speed=0.03, loop=False)
+        self.turn_anim.add_animation("left", row=0, start_col=0, num_frames=6, speed=0.03, flip_x=True, loop=False)
+        self.walk_anim.add_animation("right", row=0, start_col=0, num_frames=9, speed=0.06, loop=True)
+        self.walk_anim.add_animation("left", row=0, start_col=0, num_frames=9, speed=0.06, flip_x=True, loop=True)
+        self.wall_slide_anim.add_animation("right", row=0, start_col=0, num_frames=8, speed=0.06, loop=False)
+        self.wall_slide_anim.add_animation("left", row=0, start_col=0, num_frames=8, speed=0.06, flip_x=True, loop=False)
+        self.wall_jump_anim.add_animation("right", row=0, start_col=0, num_frames=6, speed=0.04, loop=False)
+        self.wall_jump_anim.add_animation("left", row=0, start_col=0, num_frames=6, speed=0.04, flip_x=True, loop=False)
+        self.look_down_anim.add_animation("intro_right", row=0, start_col=0, num_frames=2, speed=0.04, loop=False)
+        self.look_down_anim.add_animation("intro_left", row=0, start_col=0, num_frames=2, speed=0.04, flip_x=True, loop=False)
+        self.look_down_anim.add_animation("loop_right", row=0, start_col=2, num_frames=6, speed=0.05, loop=True)
+        self.look_down_anim.add_animation("loop_left", row=0, start_col=2, num_frames=6, speed=0.05, flip_x=True, loop=True)
+        self.look_down_anim.add_animation("release_right", row=0, start_col=8, num_frames=2, speed=0.05, loop=False)
+        self.look_down_anim.add_animation("release_left", row=0, start_col=8, num_frames=2, speed=0.05, flip_x=True, loop=False)
         self.look_up_anim.add_animation("intro_right", row=0, start_col=0, num_frames=2, speed=0.04, loop=False)
         self.look_up_anim.add_animation("intro_left", row=0, start_col=0, num_frames=2, speed=0.04, flip_x=True, loop=False)
         self.look_up_anim.add_animation("loop_right", row=0, start_col=2, num_frames=6, speed=0.05, loop=True)
         self.look_up_anim.add_animation("loop_left", row=0, start_col=2, num_frames=6, speed=0.05, flip_x=True, loop=True)
         self.look_up_anim.add_animation("release_right", row=0, start_col=8, num_frames=2, speed=0.05, loop=False)
         self.look_up_anim.add_animation("release_left", row=0, start_col=8, num_frames=2, speed=0.05, flip_x=True, loop=False)
-        self.mantle_cancel_anim.add_animation("right", row=0, start_col=0, num_frames=9, speed=0.03, loop=False)
-        self.mantle_cancel_anim.add_animation("left", row=0, start_col=0, num_frames=9, speed=0.03, flip_x=True, loop=False)
+        self.mantle_cancel_anim.add_animation("right", row=0, start_col=0, num_frames=9, speed=0.03, flip_x=True, loop=False)
+        self.mantle_cancel_anim.add_animation("left", row=0, start_col=0, num_frames=9, speed=0.03, loop=False)
         self.mantle_cling_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.08, loop=True)
         self.mantle_cling_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.08, flip_x=True, loop=True)
         self.mantle_vault_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.05, loop=False)
         self.mantle_vault_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.05, flip_x=True, loop=False)
 
     def _animation_name_for_facing(self):
+        """
+        Return the animation key for the direction opposite to facing_right.
+
+        Returns:
+            str: "left" if facing right, "right" if facing left.
+        """
         return "left" if self.facing_right else "right"
 
     def _update_facing_from_motion(self, horizontal_motion):
+        """
+        Update facing_right based on the sign of the horizontal motion value.
+
+        Args:
+            horizontal_motion (float): Combined horizontal velocity this frame.
+        """
         if horizontal_motion > 0.5:
             self.facing_right = True
         elif horizontal_motion < -0.5:
             self.facing_right = False
 
+    def _wall_side_animation_name(self):
+        """
+        Return the animation name for wall interactions based on which wall is touched.
+
+        Returns:
+            str: Animation name key corresponding to the active wall side.
+        """
+        if self.touching_wall_right:
+            return "left"
+        if self.touching_wall_left:
+            return "right"
+        return self._animation_name_for_facing()
+
     def _start_forward_attack_animation(self):
+        """Alternate between attack_1 and attack_2 and activate the forward attack animation."""
+        self._locked_attack_anim_name = self._animation_name_for_facing()
         self.forward_attack_variant = 2 if self.forward_attack_variant == 1 else 1
         if self.forward_attack_variant == 1:
             self.active_attack_animation = self.attack_1_anim
@@ -455,48 +631,74 @@ class Hornet:
             self.active_attack_visual_key = "forward_2"
         self.pending_attack_effect_start = True
         self.pending_attack_effect_start_frame = 1
-        self.active_attack_animation.set_animation(self._animation_name_for_facing(), reset=True)
+        self.active_attack_animation.set_animation(self._locked_attack_anim_name, reset=True)
 
     def _start_down_attack_animation(self):
+        """Activate the downward attack animation."""
+        self._locked_attack_anim_name = self._animation_name_for_facing()
         self.active_attack_animation = self.attack_down_anim
         self.active_attack_effect_animation = self.attack_down_effect_anim
         self.active_attack_visual_key = "down"
         self.pending_attack_effect_start = False
         self.pending_attack_effect_start_frame = 0
-        anim_name = self._animation_name_for_facing()
-        self.active_attack_animation.set_animation(anim_name, reset=True)
-        self.active_attack_effect_animation.set_animation(anim_name, reset=True)
+        self.active_attack_animation.set_animation(self._locked_attack_anim_name, reset=True)
+        self.active_attack_effect_animation.set_animation(self._locked_attack_anim_name, reset=True)
 
     def _start_up_attack_animation(self):
+        """Activate the upward attack animation."""
+        self._locked_attack_anim_name = self._animation_name_for_facing()
         self.active_attack_animation = self.attack_up_anim
         self.active_attack_effect_animation = self.attack_up_effect_anim
         self.active_attack_visual_key = "up"
         self.pending_attack_effect_start = True
         self.pending_attack_effect_start_frame = 2
-        self.active_attack_animation.set_animation(self._animation_name_for_facing(), reset=True)
+        self.active_attack_animation.set_animation(self._locked_attack_anim_name, reset=True)
 
     def _clear_attack_animations(self):
+        """Clear the active attack animation and all related visual state."""
         self.active_attack_animation = None
         self.active_attack_effect_animation = None
         self.active_attack_visual_key = None
         self.pending_attack_effect_start = False
         self.pending_attack_effect_start_frame = 0
+        self._locked_attack_anim_name = None
 
     def _update_attack_animations(self, dt):
+        """
+        Advance the active attack and effect animations by dt.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         if self.active_attack_animation is None:
             return
 
         self.active_attack_animation.update(dt)
 
+        # Once the attack animation finishes, clear it so pose (e.g. fall) can show immediately.
+        # The attack hitbox timer runs independently and handles hitbox cleanup.
+        if self.active_attack_animation.is_finished():
+            self._clear_attack_animations()
+            return
+
         if self.pending_attack_effect_start and self.active_attack_animation.current_frame >= self.pending_attack_effect_start_frame:
             self.pending_attack_effect_start = False
             if self.active_attack_effect_animation is not None:
-                self.active_attack_effect_animation.set_animation(self._animation_name_for_facing(), reset=True)
+                self.active_attack_effect_animation.set_animation(self._locked_attack_anim_name or self._animation_name_for_facing(), reset=True)
 
         if self.active_attack_effect_animation is not None and not self.pending_attack_effect_start:
             self.active_attack_effect_animation.update(dt)
 
     def _set_pose_animation(self, pose_key, animation, effect_animation=None, animation_name=None):
+        """
+        Switch the active pose animation only when pose_key changes.
+
+        Args:
+            pose_key (str): Identifier for this pose state.
+            animation: Animation object to activate.
+            effect_animation: Optional companion effect animation.
+            animation_name (str | None): Override for the animation variant name.
+        """
         if self.active_pose_key != pose_key:
             self.active_pose_key = pose_key
             self.active_pose_animation = animation
@@ -509,6 +711,13 @@ class Hornet:
                 self.active_pose_effect_animation.set_animation(effect_name, reset=True)
 
     def _sync_active_pose_direction(self, animation_name=None, effect_animation_name=None):
+        """
+        Swap to the mirrored animation variant while preserving frame progress.
+
+        Args:
+            animation_name (str | None): Target animation name; defaults to current facing.
+            effect_animation_name (str | None): Target effect animation name; defaults to current facing.
+        """
         if self.active_pose_animation is None:
             return
 
@@ -537,23 +746,33 @@ class Hornet:
                 self.active_pose_effect_animation.elapsed = previous_elapsed
 
     def _clear_pose_animation(self):
+        """Clear the active pose animation and all related visual state."""
         self.active_pose_key = None
         self.active_pose_animation = None
         self.active_pose_effect_animation = None
 
     def _start_charged_effect(self):
+        """Activate the charged needle effect animation."""
         self.charged_effect_active = True
         self.charged_effect_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
     def _start_jump_effect(self):
+        """Activate the jump dust effect animation."""
         self.jump_effect_active = True
         self.jump_effect_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
+    def _start_rebound_effect(self):
+        """Activate the rebound effect animation."""
+        self.rebound_effect_active = True
+        self.rebound_effect_anim.set_animation(self._animation_name_for_facing(), reset=True)
+
     def _start_hit_flash(self):
+        """Activate the hit flash effect animation."""
         self.hit_flash_active = True
         self.hit_flash_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
     def _start_death_animation(self):
+        """Begin the death sequence, stop all movement, and clear active animations."""
         if self.is_dead:
             return
         self.is_dead = True
@@ -576,11 +795,54 @@ class Hornet:
             pass
 
     def _start_get_off_bench(self, move_left, move_right):
+        """
+        Exit the bench rest state and begin the get-off animation.
+
+        Args:
+            move_left (bool): Whether the left movement key is held.
+            move_right (bool): Whether the right movement key is held.
+        """
         self.is_resting = False
         self.rest_timer = 0.0
+        self.respawn_active = False
         self.is_getting_off_bench = True
 
-    def _start_mantle_cling(self, ledge_x, ledge_y, ledge_direction):
+    def _start_respawn_on_bench(self):
+        """Reset all active state and place Hornet into respawn-on-bench mode."""
+        self.cancel_heal_channel()
+        self._clear_attack_animations()
+        self._clear_pose_animation()
+        self.is_dead = False
+        self.death_animation_complete = False
+        self.is_resting = True
+        self.is_getting_off_bench = False
+        self.respawn_active = True
+        self.recoil_active = False
+        self.active_rebound_key = None
+        self.rebound_land_active = False
+        self.rebound_land_pending = False
+        self.is_mantle_clinging = False
+        self.is_mantle_canceling = False
+        self.is_climbing_ledge = False
+        self.stun_timer = 0.0
+        self.velocity_x = 0
+        self.velocity_y = 0
+        self.knockback_velocity_x = 0.0
+        self.attack_recoil_velocity_x = 0.0
+        self.jump_pose_active = False
+        self.on_ground = True
+
+    def _start_mantle_cling(self, ledge_x, ledge_y, ledge_direction, cling_world_x=None, cling_world_bottom=None):
+        """
+        Enter ledge-cling state anchored at the given world-space position.
+
+        Args:
+            ledge_x (int): World X coordinate of the landing target.
+            ledge_y (int): World Y coordinate of the ledge top.
+            ledge_direction (int): 1 for right-facing ledge, -1 for left-facing.
+            cling_world_x (int | None): World X to lock the sprite to while clinging.
+            cling_world_bottom (int | None): World bottom Y to lock the sprite to while clinging.
+        """
         self.is_mantle_clinging = True
         self.is_climbing_ledge = False
         self.is_mantle_canceling = False
@@ -588,42 +850,95 @@ class Hornet:
         self._ledge_target_world_x = int(ledge_x)
         self._ledge_target_world_y = int(ledge_y)
         self._ledge_wall_direction = ledge_direction
+        self._mantle_cling_world_x = int(cling_world_x) if cling_world_x is not None else None
+        self._mantle_cling_world_bottom = int(cling_world_bottom) if cling_world_bottom is not None else None
         self.velocity_x = 0
         self.velocity_y = 0
         self.knockback_velocity_x = 0
+        self.attack_recoil_velocity_x = 0
         self.on_ground = False
         self.facing_right = ledge_direction > 0
+        self._mantle_cling_min_timer = 0.08
 
     def _start_mantle_vault(self):
+        """Begin climbing over a ledge from the cling state."""
         self.is_mantle_clinging = False
         self.is_mantle_canceling = False
         self.is_climbing_ledge = True
         self.ledge_climb_timer = self.ledge_climb_duration
         self.velocity_y = 0
         self.knockback_velocity_x = 0
+        self._mantle_cling_world_x = None
+        self._mantle_cling_world_bottom = None
 
     def _start_mantle_cancel(self):
+        """Cancel a ledge cling by jumping off the ledge."""
         self.is_mantle_clinging = False
         self.is_climbing_ledge = False
-        self.is_mantle_canceling = True
+        self.is_mantle_canceling = False
+        self._mantle_cling_world_x = None
+        self._mantle_cling_world_bottom = None
         self.velocity_y = self.jump_initial_impulse
         self.knockback_velocity_x = -self._ledge_wall_direction * (self.wall_jump_power_x * 0.5)
+        self._wall_jump_timer = self._wall_jump_cooldown
         self.on_ground = False
         self._jumping = True
         self.jump_pose_active = True
         self._jump_hold_timer = 0.0
 
+    def _start_rebound(self, rebound_key, rebound_direction):
+        """
+        Launch a rebound from a down-attack hit.
+
+        Args:
+            rebound_key (str): Animation key for the rebound variant.
+            rebound_direction (int): Horizontal direction (-1 or 1) for the rebound impulse.
+        """
+        self.active_rebound_key = rebound_key
+        self.rebound_land_active = False
+        self.rebound_land_pending = True
+        self.recoil_active = False
+        self.jump_pose_active = False
+        self._jumping = False
+        self.velocity_y = self.jump_initial_impulse
+        self.knockback_velocity_x = rebound_direction * self.rebound_horizontal_speed
+        self.attack_recoil_velocity_x = 0.0
+        self.on_ground = False
+        self._start_rebound_effect()
+
+    def _start_recoil(self):
+        """Activate recoil state on a non-fatal hit."""
+        self.recoil_active = True
+        self.active_rebound_key = None
+        self.rebound_land_active = False
+        self.rebound_land_pending = False
+        self.jump_pose_active = False
+
     def _update_pose_animations(self, dt):
+        """
+        Select and advance the active pose animation based on current state priority.
+
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         if self.active_attack_animation is not None:
             self._clear_pose_animation()
         else:
             if self.is_dead:
                 self._set_pose_animation("death", self.death_anim)
+            elif self.respawn_active:
+                self._set_pose_animation("respawn", self.respawn_anim)
+            elif self.recoil_active:
+                self._set_pose_animation("recoil", self.recoil_anim)
+            elif self.stun_timer > 0.0:
+                self._set_pose_animation("roar_lock", self.roar_lock_anim)
             elif self.is_healing:
                 if self.heal_in_air:
                     self._set_pose_animation("heal_air", self.heal_alt_anim, effect_animation=self.heal_effect_anim)
                 else:
                     self._set_pose_animation("heal", self.heal_anim, effect_animation=self.heal_effect_anim)
+            elif self.is_resting:
+                self._set_pose_animation("sit", self.sit_anim)
             elif self.is_mantle_canceling:
                 self._set_pose_animation("mantle_cancel", self.mantle_cancel_anim)
             elif self.is_mantle_clinging:
@@ -632,6 +947,11 @@ class Hornet:
                 self._set_pose_animation("mantle_vault", self.mantle_vault_anim)
             elif self.is_getting_off_bench:
                 self._set_pose_animation("get_off", self.get_off_anim)
+            elif self.rebound_land_active:
+                self._set_pose_animation("rebound_land", self.rebound_land_anim)
+            elif self.active_rebound_key is not None and not self.on_ground:
+                rebound_animation = self.rebound_1_anim if self.active_rebound_key == "rebound_1" else self.rebound_2_anim
+                self._set_pose_animation(self.active_rebound_key, rebound_animation)
             elif self.active_pose_key in {"look_down_intro", "look_down_loop", "look_down_release"}:
                 pass
             elif self.active_pose_key in {"look_up_intro", "look_up_loop", "look_up_release"}:
@@ -639,7 +959,7 @@ class Hornet:
             elif self.on_ground and self.look_direction == 1 and self.velocity_x == 0:
                 self._set_pose_animation(
                     "look_down_intro",
-                    self.look_down_better_anim,
+                    self.look_down_anim,
                     animation_name=f"intro_{self._animation_name_for_facing()}",
                 )
             elif self.on_ground and self.look_direction == -1 and self.velocity_x == 0:
@@ -650,10 +970,18 @@ class Hornet:
                 )
             elif self.landed_this_frame:
                 self._set_pose_animation("land", self.land_anim)
+            elif not self.on_ground and self._wall_jump_timer > 0.0 and not self.is_down_attacking:
+                self._set_pose_animation("wall_jump", self.wall_jump_anim)
+            elif not self.on_ground and (self.touching_wall_left or self.touching_wall_right) and self.velocity_y >= 0 and not self.is_down_attacking:
+                self._set_pose_animation("wall_slide", self.wall_slide_anim, animation_name=self._wall_side_animation_name())
             elif not self.on_ground and self.jump_pose_active and not self.is_down_attacking:
                 self._set_pose_animation("jump", self.jump_anim)
-            elif not self.on_ground and not self.jump_pose_active and not self.is_down_attacking:
+            elif not self.on_ground and not self.jump_pose_active:
                 self._set_pose_animation("fall", self.fall_anim)
+            elif self.on_ground and self.turn_pose_active:
+                self._set_pose_animation("turn", self.turn_anim)
+            elif self.on_ground and self.velocity_x != 0:
+                self._set_pose_animation("walk", self.walk_anim)
             elif self.on_ground and self.velocity_x == 0:
                 self._set_pose_animation("idle", self.idle_anim)
             else:
@@ -672,13 +1000,13 @@ class Hornet:
                 }[self.active_pose_key]
                 self._sync_active_pose_direction(animation_name=look_down_animation_name)
                 self.active_pose_animation.update(dt)
-                if self.active_pose_key == "look_down_intro" and self.look_down_better_anim.is_finished():
+                if self.active_pose_key == "look_down_intro" and self.look_down_anim.is_finished():
                     self.active_pose_key = "look_down_loop"
-                    self.look_down_better_anim.set_animation(f"loop_{facing_name}", reset=True)
+                    self.look_down_anim.set_animation(f"loop_{facing_name}", reset=True)
                 elif self.active_pose_key == "look_down_loop" and self.look_direction != 1:
                     self.active_pose_key = "look_down_release"
-                    self.look_down_better_anim.set_animation(f"release_{facing_name}", reset=True)
-                elif self.active_pose_key == "look_down_release" and self.look_down_better_anim.is_finished():
+                    self.look_down_anim.set_animation(f"release_{facing_name}", reset=True)
+                elif self.active_pose_key == "look_down_release" and self.look_down_anim.is_finished():
                     self._clear_pose_animation()
             elif self.active_pose_key in {"look_up_intro", "look_up_loop", "look_up_release"}:
                 facing_name = self._animation_name_for_facing()
@@ -697,6 +1025,9 @@ class Hornet:
                     self.look_up_anim.set_animation(f"release_{facing_name}", reset=True)
                 elif self.active_pose_key == "look_up_release" and self.look_up_anim.is_finished():
                     self._clear_pose_animation()
+            elif self.active_pose_key == "wall_slide":
+                self._sync_active_pose_direction(animation_name=self._wall_side_animation_name())
+                self.active_pose_animation.update(dt)
             else:
                 self._sync_active_pose_direction()
                 self.active_pose_animation.update(dt)
@@ -705,11 +1036,26 @@ class Hornet:
 
             if self.active_pose_key == "death" and self.active_pose_animation.is_finished():
                 self.death_animation_complete = True
+            elif self.active_pose_key == "respawn" and self.active_pose_animation.is_finished():
+                self.respawn_active = False
+                self._clear_pose_animation()
+            elif self.active_pose_key == "recoil" and self.active_pose_animation.is_finished():
+                self.recoil_active = False
+                self._clear_pose_animation()
+            elif self.active_pose_key in {"rebound_1", "rebound_2"} and self.active_pose_animation.is_finished():
+                self.active_rebound_key = None
+                self._clear_pose_animation()
+            elif self.active_pose_key == "rebound_land" and self.active_pose_animation.is_finished():
+                self.rebound_land_active = False
+                self._clear_pose_animation()
             elif self.active_pose_key == "land" and self.active_pose_animation.is_finished():
                 self._clear_pose_animation()
             elif self.active_pose_key == "get_off" and self.active_pose_animation.is_finished():
                 self.is_getting_off_bench = False
                 self._clear_pose_animation()
+            elif self.active_pose_key == "turn" and self.active_pose_animation.is_finished():
+                self.turn_pose_active = False
+                # Don't clear pose; keeps turn's last frame visible this frame, selection picks walk/idle next frame
             elif self.active_pose_key == "mantle_cancel" and self.active_pose_animation.is_finished():
                 self.is_mantle_canceling = False
                 self._clear_pose_animation()
@@ -724,6 +1070,10 @@ class Hornet:
             self.jump_effect_anim.update(dt)
             if self.jump_effect_anim.is_finished():
                 self.jump_effect_active = False
+        if self.rebound_effect_active:
+            self.rebound_effect_anim.update(dt)
+            if self.rebound_effect_anim.is_finished():
+                self.rebound_effect_active = False
         if self.hit_flash_active:
             self.hit_flash_anim.update(dt)
             if self.hit_flash_anim.is_finished():
@@ -754,6 +1104,7 @@ class Hornet:
 
         move_left_pressed = keys[pygame.K_a]
         move_right_pressed = keys[pygame.K_d]
+        self.move_input_x = -1 if move_left_pressed and not move_right_pressed else 1 if move_right_pressed and not move_left_pressed else 0
         jump_pressed = keys[pygame.K_SPACE]
 
         if self.is_mantle_clinging:
@@ -764,7 +1115,7 @@ class Hornet:
             climb_right = self._ledge_wall_direction == 1 and move_right_pressed
             if jump_pressed and not self._jump_held:
                 self._start_mantle_cancel()
-            elif climb_left or climb_right:
+            elif (climb_left or climb_right) and self._mantle_cling_min_timer <= 0.0:
                 self._start_mantle_vault()
             self._jump_held = jump_pressed
             self._attack_key_down = attack_pressed
@@ -772,7 +1123,7 @@ class Hornet:
             self._camera_velocity[1] = 0
             return self._camera_velocity
 
-        if self.is_resting and (move_left_pressed or move_right_pressed):
+        if self.is_resting and not self.respawn_active and (move_left_pressed or move_right_pressed):
             self._start_get_off_bench(move_left_pressed, move_right_pressed)
 
         if self.is_healing or self.is_resting or self.is_climbing_ledge or self.stun_timer > 0.0:
@@ -855,7 +1206,10 @@ class Hornet:
         if self._jumping and self.velocity_y >= 0:
             self._jumping = False
 
+        _prev_facing = self.facing_right
         self._update_facing_from_motion(self.velocity_x + self.knockback_velocity_x + self.attack_recoil_velocity_x)
+        if self.on_ground and self.facing_right != _prev_facing:
+            self.turn_pose_active = True
 
         self._jump_held = jump_pressed
 
@@ -870,6 +1224,7 @@ class Hornet:
             elif keys[pygame.K_s] and not self.on_ground:
                 self.attack_hitbox_direction = "down"
                 self.is_down_attacking = True
+                self.jump_pose_active = False
                 self.down_attack_momentum_active = True
                 self._start_down_attack_animation()
                 # Fast diagonal charge in facing direction + downward
@@ -1023,6 +1378,7 @@ class Hornet:
         self.cancel_heal_channel()
         self.is_resting = True
         self.is_getting_off_bench = False
+        self.respawn_active = False
         self.rest_timer = self.rest_duration
         self.health = self.max_health
         self.velocity_x = 0
@@ -1090,6 +1446,7 @@ class Hornet:
         if self.health <= 0:
             self._start_death_animation()
         else:
+            self._start_recoil()
             self._start_charged_effect()
 
         if knockback_direction < 0:
@@ -1108,14 +1465,21 @@ class Hornet:
             if current_world_bottom > desired_world_bottom:
                 self.rect.bottom = int(desired_world_bottom - camera_y)
 
-        self.velocity_y = self.jump_initial_impulse
-        self.knockback_velocity_x *= self.down_attack_rebound_horizontal_scale
+        attack_direction = 1 if self.attack_hitbox_facing_right else -1
+        pressed_direction = self.move_input_x
+        if pressed_direction == -attack_direction:
+            rebound_key = "rebound_1"
+            rebound_direction = pressed_direction
+        else:
+            rebound_key = "rebound_2"
+            rebound_direction = pressed_direction if pressed_direction != 0 else attack_direction
+
+        self._start_rebound(rebound_key, rebound_direction)
         self.on_ground = False
         self._rebound_available = False
-        self._jumping = True
         self._jump_hold_timer = 0.0
         self.is_down_attacking = False
-        self.down_attack_rebound_timer = max(self.down_attack_rebound_timer, self.attack_hitbox_timer)
+        self.down_attack_rebound_timer = max(self.down_attack_rebound_timer, 0.12)
         return True
     
     def update(self, dt, collision_rects=None, camera_x=0, camera_y=0, move_horizontally=False):
@@ -1201,24 +1565,31 @@ class Hornet:
                 self.landed_this_frame = True
                 self.jump_pose_active = False
         elif self.is_mantle_clinging:
+            if self._mantle_cling_world_x is not None:
+                self.rect.x = int(self._mantle_cling_world_x - camera_x)
+            if self._mantle_cling_world_bottom is not None:
+                self.rect.bottom = int(self._mantle_cling_world_bottom - camera_y)
+            self.knockback_velocity_x = 0.0
+            self.attack_recoil_velocity_x = 0.0
             self.velocity_y = 0
             self.on_ground = False
+            if self._mantle_cling_min_timer > 0.0:
+                self._mantle_cling_min_timer = max(0.0, self._mantle_cling_min_timer - dt)
         else:
-            # Apply gravity
+            # Determine if Hornet was on a wall last frame (touching_wall flags still reflect previous frame here)
+            _on_wall_prev = (
+                not self.on_ground
+                and (self.touching_wall_left or self.touching_wall_right)
+                and self._wall_jump_timer <= 0.0
+                and self.down_attack_rebound_timer <= 0.0
+            )
+            # Apply gravity, or accelerate toward wall_slide_speed when already pressed against a wall
             if self.is_healing and self.heal_in_air:
                 self.velocity_y = 0
+            elif _on_wall_prev:
+                self.velocity_y = min(self.velocity_y + self.wall_slide_acceleration * dt, self.wall_slide_speed)
             else:
                 self.velocity_y += self.gravity * dt
-
-            if self.down_attack_rebound_timer > 0.0:
-                self.velocity_y = self.jump_initial_impulse
-                self.on_ground = False
-                self._jumping = True
-
-            # Wall slide: always engage on wall contact in air (outside immediate wall-jump impulse).
-            # This prevents jump-hold from creating upward wall-glide.
-            if not self.on_ground and (self.touching_wall_left or self.touching_wall_right) and self._wall_jump_timer <= 0.0 and self.down_attack_rebound_timer <= 0.0:
-                self.velocity_y = self.wall_slide_speed
 
             if move_horizontally:
                 horizontal_velocity = self.velocity_x + self.knockback_velocity_x + self.attack_recoil_velocity_x
@@ -1274,6 +1645,10 @@ class Hornet:
                         self.is_down_attacking = False
                     landed = True
                     self.jump_pose_active = False
+                    if self.rebound_land_pending:
+                        self.rebound_land_pending = False
+                        self.rebound_land_active = True
+                        self.active_rebound_key = None
                     if not self.was_on_ground:
                         self.landed_this_frame = True
 
@@ -1330,8 +1705,23 @@ class Hornet:
 
                 resolved_world_rect = world_rect.copy()
 
+            # Handle wall-slide velocity for current-frame wall contact
+            _on_wall_now = (
+                not self.on_ground
+                and (self.touching_wall_left or self.touching_wall_right)
+                and self._wall_jump_timer <= 0.0
+                and self.down_attack_rebound_timer <= 0.0
+            )
+            if _on_wall_now:
+                if not _on_wall_prev:
+                    # First frame on wall: start sliding from rest
+                    self.velocity_y = 0.0
+                else:
+                    # Already sliding: ensure cap is respected
+                    self.velocity_y = min(self.velocity_y, self.wall_slide_speed)
+
             # Ledge detection: enter cling state until climb or cancel input.
-            if not self.on_ground and self.velocity_y >= 0 and not self._pressing_down and collision_rects:
+            if not self.on_ground and self.velocity_y >= 0 and not self._pressing_down and self._wall_jump_timer <= 0.0 and not self.is_mantle_canceling and collision_rects:
                 if self.touching_wall_right or self.touching_wall_left:
                     wr = resolved_world_rect.copy() if resolved_world_rect is not None else self.rect.copy()
                     if resolved_world_rect is None:
@@ -1372,10 +1762,16 @@ class Hornet:
                         if blocked:
                             continue
 
-                        self._start_mantle_cling(landing_rect.x, ledge_top, ledge_direction)
+                        cling_world_bottom = int(ledge_top + (wr.height * 0.6))
+                        self._start_mantle_cling(
+                            landing_rect.x,
+                            ledge_top,
+                            ledge_direction,
+                            cling_world_x=wr.x,
+                            cling_world_bottom=cling_world_bottom,
+                        )
                         break
 
-                self._update_facing_from_motion(horizontal_displacement)
         self._update_pose_animations(dt)
 
         if self.attack_hitbox_timer > 0.0:
@@ -1391,6 +1787,8 @@ class Hornet:
                 self.attack_hit_mossgrub = False
                 self.attack_hit_mossmother = False
                 self._clear_attack_animations()
+                # Re-run pose selection so draw() never sees a frame with no animation
+                self._update_pose_animations(0)
         
         # Prevent falling off screen top
         if self.rect.top < 0:
@@ -1411,6 +1809,15 @@ class Hornet:
             draw_hitbox_rect = self._build_attack_hitbox(draw_rect)
 
         def apply_facing_offset(offset):
+            """
+            Flip the x component of an offset based on the current facing direction.
+
+            Args:
+                offset (tuple[int, int]): (x, y) offset in facing-right space.
+
+            Returns:
+                tuple[int, int]: Adjusted (x, y) offset for the current facing direction.
+            """
             offset_x, offset_y = offset
             return (offset_x if self.facing_right else -offset_x, offset_y)
 
@@ -1511,6 +1918,16 @@ class Hornet:
                 jump_effect_rect.y += int(effect_offset_y)
                 screen.blit(jump_effect_frame, jump_effect_rect)
 
+        if self.rebound_effect_active:
+            rebound_effect_frame = self.rebound_effect_anim.get_current_frame()
+            if rebound_effect_frame is not None:
+                rebound_effect_rect = rebound_effect_frame.get_rect()
+                rebound_effect_rect.midbottom = draw_rect.midbottom
+                effect_offset_x, effect_offset_y = apply_facing_offset(self.pose_effect_offsets.get("rebound", (0, 0)))
+                rebound_effect_rect.x += int(effect_offset_x)
+                rebound_effect_rect.y += int(effect_offset_y)
+                screen.blit(rebound_effect_frame, rebound_effect_rect)
+
         if self.hit_flash_active:
             hit_flash_frame = self.hit_flash_anim.get_current_frame()
             if hit_flash_frame is not None:
@@ -1532,6 +1949,48 @@ class Hornet:
             line_surface = config.font.render(line, True, config.white)
             line_y = instructions_draw_y + (i * config.font.get_linesize())
             screen.blit(line_surface, (instructions_draw_x, line_y))
+        
+        #draw health bar (updates with numeric health value)
+        class HealthBar(pygame.sprite.Sprite):
+            def __init__(self,height,width, color = (255,255,255)):
+                super().__init__()
+                self.image = pygame.Surface((width, height),pygame.SRCALPHA)
+                self.image.fill((0,0,0,0))
+                pygame.draw.rect(self.image, color, pygame.Rect(0, 0, width, height))
+                self.rect = self.image.get_rect()
+        all_health_bar = pygame.sprite.Group()
+        icon_w = 16
+        icon_h = 16
+        pad = 4
+        start_x, start_y = 10, 10
+        for i in range(self.health):
+            hb = HealthBar(icon_w, icon_h)
+            hb.rect.topleft = (start_x + i*(icon_w + pad), start_y)
+            all_health_bar.add(hb)
+        all_health_bar.draw(screen)
+        
+        class SilkBar(pygame.sprite.Sprite):
+            def __init__(self,height, width, color = (255,255,255)):
+                super().__init__()
+                self.image = pygame.Surface((width, height),pygame.SRCALPHA)
+                self.image.fill((0,0,0,0))
+                pygame.draw.rect(self.image, color, pygame.Rect(0, 0, width, height))
+                self.rect = self.image.get_rect()
+        all_silk_bar = pygame.sprite.Group()
+        icon_w = 16
+        icon_h = 16
+        pad = 4
+        start_x, start_y = 10, 40
+        for i in range(self.silk):
+            sb = SilkBar(icon_w, icon_h)
+            sb.rect.topleft = (start_x + i*(icon_w + pad), start_y)
+            all_silk_bar.add(sb)
+        all_silk_bar.draw(screen)
+
+
+
+                
+        
 
 
     
@@ -1557,6 +2016,7 @@ class Hornet:
         self.charged_effect_active = False
         self.jump_effect_active = False
         self.hit_flash_active = False
+        self.rebound_effect_active = False
         self._jump_hold_timer = 0.0
         self._jump_held = False
         self._jumping = False
@@ -1580,6 +2040,13 @@ class Hornet:
         self.down_attack_rebound_timer = 0.0
         self.down_attack_jump_lock_timer = 0.0
         self.jump_pose_active = False
+        self.active_rebound_key = None
+        self.rebound_land_active = False
+        self.rebound_land_pending = False
+        self.recoil_active = False
+        self.respawn_active = False
+        self.turn_pose_active = False
+        self.move_input_x = 0
         self._attack_timer = 0.0
         self._dash_timer = 0.0
         self._special_timer = 0.0
@@ -1589,6 +2056,9 @@ class Hornet:
         self.is_climbing_ledge = False
         self.ledge_climb_timer = 0.0
         self._ledge_target_world_x = None
+        self._mantle_cling_world_x = None
+        self._mantle_cling_world_bottom = None
+        self._mantle_cling_min_timer = 0.0
         self.touching_wall_left = False
         self.touching_wall_right = False
         self.camera_x_correction = 0.0

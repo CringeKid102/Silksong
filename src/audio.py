@@ -4,6 +4,8 @@ import json
 from typing import Dict, Optional
 
 class AudioManager:
+    """Singleton audio manager for music playback, sound effects, and volume control."""
+
     _instance = None
     _initialized = False
     
@@ -172,6 +174,7 @@ class AudioManager:
             pygame.mixer.music.stop()
     
     def set_master_volume(self, volume: float):
+        """Set the master volume, clamped to [0, 1], and save settings."""
         self.master_volume = max(0.0, min(1.0, volume))
         if self._audio_available:
             pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
@@ -179,12 +182,14 @@ class AudioManager:
         self.save_settings()
     
     def set_music_volume(self, volume: float):
+        """Set the music volume, clamped to [0, 1], and save settings."""
         self.music_volume = max(0.0, min(1.0, volume))
         if self._audio_available:
             pygame.mixer.music.set_volume(self.music_volume * self.master_volume)
         self.save_settings()
     
     def set_sfx_volume(self, volume: float):
+        """Set the sound-effects volume, clamped to [0, 1], and save settings."""
         self.sfx_volume = max(0.0, min(1.0, volume))
         if self._audio_available:
             self._refresh_sfx_channel_volumes()
@@ -197,6 +202,7 @@ class AudioManager:
             channel.set_volume(channel_volume)
     
     def get_volumes(self) -> Dict[str, float]:
+        """Return a dict with current master, music, and sfx volume levels."""
         return {'master': self.master_volume, 'music': self.music_volume, 'sfx': self.sfx_volume}
     
     def is_music_playing(self) -> bool:
