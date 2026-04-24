@@ -24,15 +24,25 @@ class SaveSlotButton:
         self.background_img = background_img
         self.rect = pygame.Rect(x, y, width, height)
 
-        # Load menu slider for hover effect (different from button.py pointer)
-        slider_path = resolve_image_path("MenuSliderHandle.png")
-        if os.path.exists(slider_path):
-            self.hover_pointer = pygame.image.load(slider_path).convert_alpha()
-            # Scale slider
-            pointer_size = int(70 * config.scale_x)
-            self.hover_pointer = pygame.transform.scale(self.hover_pointer, (pointer_size, pointer_size))
-        else:
-            self.hover_pointer = None
+        # Load menu slider for hover effect (different from button.py pointer).
+        # Some asset packs do not include the legacy MenuSliderHandle.png file.
+        self.hover_pointer = None
+        pointer_candidates = [
+            "MenuSliderHandle.png",
+            "spritesheet/HUD/menu_slider.png",
+            "pointer.png",
+        ]
+        for pointer_asset in pointer_candidates:
+            try:
+                slider_path = resolve_image_path(pointer_asset)
+            except FileNotFoundError:
+                continue
+
+            if os.path.exists(slider_path):
+                self.hover_pointer = pygame.image.load(slider_path).convert_alpha()
+                pointer_size = int(70 * config.scale_x)
+                self.hover_pointer = pygame.transform.scale(self.hover_pointer, (pointer_size, pointer_size))
+                break
         
         # Font for "New File" text
         self.font = config.get_font(int(36 * config.scale_y))

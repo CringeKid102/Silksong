@@ -332,7 +332,7 @@ class Silksong:
         self.particle_system = ParticleSystem(config.screen_width, config.screen_height)
         ember_image_path = resolve_image_path("ember_particle.png")
         self.particle_system.load_ember_image(ember_image_path)
-        ember_round_image_path = resolve_image_path("Texture2D/ember_particle_round.png")
+        ember_round_image_path = resolve_image_path("particle/ember_particle.png")
         self.particle_system.load_ember_round_image(ember_round_image_path)
         
         # Create buttons
