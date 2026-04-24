@@ -6,6 +6,7 @@ from slider import Slider
 from transition import TransitionType
 from audio import AudioManager
 from button import Button
+from runtime_paths import user_data_file
 
 class SettingsMenu:
     """In-game settings menu with sub-menus for game, audio, video, and keyboard options."""
@@ -54,7 +55,7 @@ class SettingsMenu:
         self._init_keyboard_menu()
         
         # Save file path
-        self.save_path = os.path.join(os.path.dirname(__file__), "game_progress.json")
+        self.save_path = user_data_file("game_progress.json")
         
         # Reference to the main game object
         self.game = None

@@ -15,6 +15,7 @@ from save_file import SaveFile
 from hornet import Hornet
 from mossgrub import MossGrub
 from moss_mother import MossMother
+from runtime_paths import assets_path, images_path
 
 # Initialize pygame
 pygame.init()
@@ -153,7 +154,7 @@ class Silksong:
 
         base_scale = float(overlay_config.get("scale", 1.0))
         base_alpha = max(0, min(255, int(overlay_config.get("alpha", 255))))
-        image_root = os.path.join(os.path.dirname(__file__), "../assets/images")
+        image_root = images_path()
 
         for layer_name, layer_config in overlay_config.get("layers", {}).items():
             relative_path = layer_config.get("path")
@@ -257,7 +258,7 @@ class Silksong:
         self.running = True
         self.state = "title screen"
         self.clock = pygame.time.Clock()
-        self.intro_video_path = os.path.join(os.path.dirname(__file__), "../assets/video/intro_cinematic.mp4")
+        self.intro_video_path = assets_path("video", "intro_cinematic.mp4")
         self.cutscene_capture = None
         self.cutscene_surface = None
         self.cutscene_rect = None

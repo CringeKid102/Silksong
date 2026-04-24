@@ -5,3 +5,7 @@ __pycache__/
 # Virtual environments
 .venv/
 venv/
+
+# PyInstaller outputs
+build/
+dist/

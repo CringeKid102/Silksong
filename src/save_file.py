@@ -7,6 +7,7 @@ from button import Button
 from audio import AudioManager
 from hornet import Hornet
 from animation import Animation
+from runtime_paths import user_data_file
 
 
 class SaveSlotButton:
@@ -223,10 +224,10 @@ class SaveFile:
     def __init__(self):
         # Define the 4 save slots
         self.save_slots = {
-            1: "save_1.json",
-            2: "save_2.json",
-            3: "save_3.json",
-            4: "save_4.json"
+            1: user_data_file("save_1.json"),
+            2: user_data_file("save_2.json"),
+            3: user_data_file("save_3.json"),
+            4: user_data_file("save_4.json")
         }
         self.current_slot = None
         self.game_state = None  # Current game state dictionary

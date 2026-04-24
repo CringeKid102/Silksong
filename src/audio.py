@@ -3,6 +3,8 @@ import os
 import json
 from typing import Dict, Optional
 
+from runtime_paths import assets_path, user_data_file
+
 class AudioManager:
     """Singleton audio manager for music playback, sound effects, and volume control."""
 
@@ -29,7 +31,7 @@ class AudioManager:
             self._audio_available = False
             print(f"Warning: Audio disabled ({e})")
 
-        self.audio_dir = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "assets", "audio"))
+        self.audio_dir = os.path.normpath(assets_path("audio"))
 
         # Volume settings
         self.master_volume = 0.7
@@ -41,7 +43,7 @@ class AudioManager:
         self.current_channel = 0
         self.sfx_sounds = {}
 
-        self.settings_file = os.path.join(os.path.dirname(__file__), "game_progress.json")
+        self.settings_file = user_data_file("game_progress.json")
         self.load_settings()
     
     def load_settings(self):

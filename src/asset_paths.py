@@ -1,7 +1,9 @@
 from pathlib import Path
 
+from runtime_paths import images_path
+
 # This module provides a function to resolve image asset paths within the "assets/images" directory.
-_IMAGES_ROOT = Path(__file__).resolve().parent.parent / "assets" / "images"
+_IMAGES_ROOT = Path(images_path())
 _DIRECT_PATH_CACHE = {}
 _NAME_INDEX = None
 

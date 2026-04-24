@@ -1,6 +1,8 @@
 import pygame
 import os
 
+from runtime_paths import assets_path
+
 # Initialize Pygame
 pygame.init()
 
@@ -18,8 +20,8 @@ scale_x = screen_width / game_width
 scale_y = screen_height / game_height
 
 # Fonts
-font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/Perpetua Regular.otf")
-title_font_path = os.path.join(os.path.dirname(__file__), "../assets/fonts/TrajanPro-Regular.ttf")
+font_path = assets_path("fonts", "Perpetua Regular.otf")
+title_font_path = assets_path("fonts", "TrajanPro-Regular.ttf")
 
 # Font cache for efficient reuse
 _font_cache = {}
