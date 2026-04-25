@@ -9,3 +9,6 @@ venv/
 # PyInstaller outputs
 build/
 dist/
+
+# Release artifacts (large binaries, not for git)
+release/

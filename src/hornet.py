@@ -13,7 +13,7 @@ class Hornet:
         image_path = resolve_image_path("hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
-        scale_factor = 0.3 * config.scale_y
+        scale_factor = 0.3 * config.scale_y * config.HORNET_SCALE_MULTIPLIER
         scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
         self.image = pygame.transform.scale(self.image, scaled_size)
         self.image_flipped = pygame.transform.flip(self.image, True, False)
@@ -120,6 +120,8 @@ class Hornet:
         self.heal_in_air = False
         self.is_dead = False
         self.death_animation_complete = False
+        self.death_finish_hold_duration = 0.4
+        self.death_finish_hold_timer = 0.0
 
         # Silk resource system
         self.max_silk = 9
@@ -135,6 +137,13 @@ class Hornet:
         self._attack_triggered = False
         self._attack_key_down = False
         self._heal_key_down = False
+
+        # Cached static instruction text surfaces.
+        self._instruction_line_surfaces = None
+
+        # Reduced combat hurtbox (separate from physics rect and attack hitbox).
+        self.hitbox_inset_x = 0.28
+        self.hitbox_inset_y = 0.18
 
         # Dedicated attack hitbox state
         self.attack_range = 70
@@ -158,7 +167,7 @@ class Hornet:
         self.was_on_ground = False
         self.landed_this_frame = False
         self.jump_pose_active = False
-        anim_scale = 0.5 * config.scale_y
+        anim_scale = 0.5 * config.scale_y * config.HORNET_SCALE_MULTIPLIER
         self.attack_1_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_1.png"),
             frame_width=256,
@@ -441,6 +450,7 @@ class Hornet:
         self.attack_recoil_applied = False
         self.is_down_attacking = False
         self.down_attack_momentum_active = False
+        self.down_attack_air_ready = True
         self.down_attack_rebound_timer = 0.0
         self.down_attack_jump_lock_duration = 0.3
         self.down_attack_jump_lock_timer = 0.0
@@ -449,6 +459,7 @@ class Hornet:
         self.rebound_land_active = False
         self.rebound_land_pending = False
         self.recoil_active = False
+        self.recoil_animation_name = None
         self.respawn_active = False
         self.turn_pose_active = False
         self.move_input_x = 0
@@ -456,6 +467,50 @@ class Hornet:
         #Respawn point
         self.respawn_x = x
         self.respawn_y = y
+
+        # HUD placement and per-animation offsets (tune these values manually).
+        self.hud_base_positions = {
+            "health": (40, 10),
+            "silk": (10, 10),
+        }
+        self.hud_animation_offsets = {
+            "flash": (0, 0),
+            "frame_appear": (70, 30),
+            "bind_orb": (-6, 38),
+            "health_appear": (50, 35),
+            "health_break": (50, 35),
+            "silk_down": (20, 90),
+            "silk_up": (20, 90),
+            "soul_burst": (0, 0),
+            "spool_appear": (-52, 90),
+            "spool_sprite": (-52, 90),
+            "silk_content": (0, 0),
+        }
+
+        self._hud_prev_health = self.health
+        self._hud_prev_silk = self.silk
+        self.hud_flash_active = False
+        self.hud_frame_appear_active = False
+        self.hud_frame_appear_pending = False
+        self.hud_bind_orb_active = False
+        self.hud_health_appear_active = False
+        self.hud_health_appear_slots = []
+        self.hud_health_break_active = False
+        self.hud_health_break_slot = None
+        self.hud_silk_down_active = False
+        self.hud_silk_up_active = False
+        self.hud_silk_up_slots = []
+        self.hud_silk_up_animating_slots = []
+        self.hud_silk_up_queue = []
+        self.hud_health_last_frame = None
+        self.hud_health_break_last_frame = None
+        self.hud_soul_burst_active = False
+        self.hud_spool_appear_active = False
+        self.hud_show_spool_sprite = False
+        self.hit_flash_world_center = None
+
+        self._init_hud_animations()
+        self._trigger_hud_enter_game()
     
     def _repeat_tail_frames(self, animation, base_frame_count, total_frame_count, tail_repeat_count, flip_x=False):
         """
@@ -552,8 +607,8 @@ class Hornet:
         self.recoil_anim.add_animation("left", row=0, start_col=0, num_frames=6, speed=0.035, flip_x=True, loop=False)
         self.respawn_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.06, loop=False)
         self.respawn_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.06, flip_x=True, loop=False)
-        self.roar_lock_anim.add_animation("right", row=0, start_col=0, num_frames=5, speed=0.05, loop=True)
-        self.roar_lock_anim.add_animation("left", row=0, start_col=0, num_frames=5, speed=0.05, flip_x=True, loop=True)
+        self.roar_lock_anim.add_animation("right", row=0, start_col=0, num_frames=5, speed=0.05, loop=False)
+        self.roar_lock_anim.add_animation("left", row=0, start_col=0, num_frames=5, speed=0.05, flip_x=True, loop=False)
         self.sit_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.06, loop=False)
         self.sit_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.06, flip_x=True, loop=False)
         self.turn_anim.add_animation("right", row=0, start_col=0, num_frames=6, speed=0.03, loop=False)
@@ -582,6 +637,241 @@ class Hornet:
         self.mantle_cling_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.08, flip_x=True, loop=True)
         self.mantle_vault_anim.add_animation("right", row=0, start_col=0, num_frames=4, speed=0.05, loop=False)
         self.mantle_vault_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.05, flip_x=True, loop=False)
+
+    def _hud_frame_count_for_sheet(self, animation):
+        """Return the number of frames in the first row of a HUD spritesheet."""
+        sheet = animation._get_sprite_sheet()
+        usable_width = max(0, sheet.get_width() - (animation.margin * 2))
+        frame_span = animation.frame_width + animation.spacing
+        if frame_span <= 0:
+            return 1
+        return max(1, (usable_width + animation.spacing) // frame_span)
+
+    def _add_hud_row_animation(self, animation, name, speed=0.06, loop=False):
+        """Add a one-row animation using every frame available in the sheet."""
+        frame_count = self._hud_frame_count_for_sheet(animation)
+        animation.add_animation(name, row=0, start_col=0, num_frames=frame_count, speed=speed, loop=loop)
+
+    def _init_hud_animations(self):
+        """Load HUD animation assets for health and silk UI."""
+        hud_scale = 0.7 * max(1.0, config.scale_y)
+
+        self.hud_flash_anim = Animation(
+            resolve_image_path("spritesheet/HUD/flash.png"),
+            frame_width=1696,
+            frame_height=396,
+            scale=hud_scale,
+        )
+        self.hud_frame_appear_anim = Animation(
+            resolve_image_path("spritesheet/HUD/frame_appear.png"),
+            frame_width=313,
+            frame_height=113,
+            scale=hud_scale,
+        )
+        self.hud_bind_orb_anim = Animation(
+            resolve_image_path("spritesheet/HUD/bind_orb.png"),
+            frame_width=158,
+            frame_height=136,
+            scale=hud_scale,
+        )
+        self.hud_health_appear_anim = Animation(
+            resolve_image_path("spritesheet/HUD/health_appear.png"),
+            frame_width=74,
+            frame_height=97,
+            scale=0.7 * hud_scale,
+        )
+        self.hud_health_break_anim = Animation(
+            resolve_image_path("spritesheet/HUD/health_break.png"),
+            frame_width=168,
+            frame_height=273,
+            scale=0.7 *hud_scale,
+        )
+        self.hud_silk_down_anim = Animation(
+            resolve_image_path("spritesheet/HUD/silk_down.png"),
+            frame_width=35,
+            frame_height=220,
+            scale=hud_scale,
+        )
+        self.hud_silk_up_anim = Animation(
+            resolve_image_path("spritesheet/HUD/silk_up.png"),
+            frame_width=36,
+            frame_height=276,
+            scale=hud_scale,
+        )
+        self.hud_soul_burst_anim = Animation(
+            resolve_image_path("spritesheet/HUD/soul_burst.png"),
+            frame_width=472,
+            frame_height=444,
+            scale=hud_scale,
+        )
+        self.hud_spool_appear_anim = Animation(
+            resolve_image_path("spritesheet/HUD/spool_appear.png"),
+            frame_width=602,
+            frame_height=76,
+            scale=hud_scale,
+        )
+
+        self._add_hud_row_animation(self.hud_flash_anim, "play", speed=0.03, loop=False)
+        self._add_hud_row_animation(self.hud_frame_appear_anim, "play", speed=0.06, loop=False)
+        self._add_hud_row_animation(self.hud_bind_orb_anim, "play", speed=0.06, loop=False)
+        self._add_hud_row_animation(self.hud_health_appear_anim, "play", speed=0.05, loop=False)
+        self._add_hud_row_animation(self.hud_health_break_anim, "play", speed=0.04, loop=False)
+        self._add_hud_row_animation(self.hud_silk_down_anim, "play", speed=0.04, loop=False)
+        self._add_hud_row_animation(self.hud_silk_up_anim, "play", speed=0.05, loop=False)
+        self._add_hud_row_animation(self.hud_soul_burst_anim, "play", speed=0.04, loop=False)
+        self._add_hud_row_animation(self.hud_spool_appear_anim, "play", speed=0.05, loop=False)
+
+        health_frames = self._hud_frame_count_for_sheet(self.hud_health_appear_anim)
+        self.hud_health_last_frame = self.hud_health_appear_anim.extract_frames(0, max(0, health_frames - 1), 1)[0]
+        health_break_frames = self._hud_frame_count_for_sheet(self.hud_health_break_anim)
+        self.hud_health_break_last_frame = self.hud_health_break_anim.extract_frames(0, max(0, health_break_frames - 1), 1)[0]
+        silk_up_frames = self._hud_frame_count_for_sheet(self.hud_silk_up_anim)
+        self.hud_silk_up_last_frame = self.hud_silk_up_anim.extract_frames(0, max(0, silk_up_frames - 1), 1)[0]
+
+        spool_path = resolve_image_path("sprite/spool.png")
+        self.hud_spool_image = pygame.image.load(spool_path).convert_alpha()
+        spool_w, spool_h = self.hud_spool_image.get_size()
+        self.hud_spool_image = pygame.transform.smoothscale(
+            self.hud_spool_image,
+            (max(1, int(spool_w * hud_scale)), max(1, int(spool_h * hud_scale))),
+        )
+
+    def trigger_hud_flash(self):
+        """Public trigger for one-shot HUD flash (e.g. button touch)."""
+        self.hud_flash_active = True
+        self.hud_flash_anim.set_animation("play", reset=True)
+
+    def _trigger_hud_enter_game(self):
+        """Trigger HUD intro animations used on entering gameplay/save state."""
+        self.hud_frame_appear_active = False
+        self.hud_frame_appear_pending = True
+        self.hud_health_appear_active = True
+        self.hud_health_appear_slots = list(range(max(0, min(self.max_health, self.health))))
+        self.hud_health_appear_anim.set_animation("play", reset=True)
+        self.hud_spool_appear_active = True
+        self.hud_show_spool_sprite = False
+        self.hud_spool_appear_anim.set_animation("play", reset=True)
+        if self.silk >= self.max_silk:
+            self.hud_bind_orb_active = True
+            self.hud_bind_orb_anim.set_animation("play", reset=True)
+        else:
+            self.hud_bind_orb_active = False
+
+    def _update_hud_animations(self, dt):
+        """Advance active HUD animations and handle one-shot completion behavior."""
+        if self.hud_flash_active:
+            self.hud_flash_anim.update(dt)
+            if self.hud_flash_anim.is_finished():
+                self.hud_flash_active = False
+
+        if self.hud_frame_appear_active and not self.hud_frame_appear_anim.is_finished():
+            self.hud_frame_appear_anim.update(dt)
+
+        if self.hud_bind_orb_active and not self.hud_bind_orb_anim.is_finished():
+            self.hud_bind_orb_anim.update(dt)
+
+        if self.hud_health_appear_active:
+            self.hud_health_appear_anim.update(dt)
+            if self.hud_health_appear_anim.is_finished():
+                self.hud_health_appear_active = False
+                self.hud_health_appear_slots = []
+                if self.hud_frame_appear_pending:
+                    self.hud_frame_appear_pending = False
+                    self.hud_frame_appear_active = True
+                    self.hud_frame_appear_anim.set_animation("play", reset=True)
+
+        if self.hud_health_break_active:
+            self.hud_health_break_anim.update(dt)
+            if self.hud_health_break_anim.is_finished():
+                self.hud_health_break_active = False
+                self.hud_health_break_slot = None
+
+        if self.hud_silk_down_active:
+            self.hud_silk_down_anim.update(dt)
+            if self.hud_silk_down_anim.is_finished():
+                self.hud_silk_down_active = False
+                self.hud_silk_up_slots = []
+                self.hud_silk_up_animating_slots = []
+                self.hud_silk_up_queue = []
+
+        if self.hud_silk_up_active and not self.hud_silk_up_anim.is_finished():
+            self.hud_silk_up_anim.update(dt)
+        elif self.hud_silk_up_active and self.hud_silk_up_anim.is_finished():
+            if self.hud_silk_up_queue:
+                next_slot = self.hud_silk_up_queue.pop(0)
+                self.hud_silk_up_animating_slots = [next_slot]
+                self.hud_silk_up_anim.set_animation("play", reset=True)
+            else:
+                self.hud_silk_up_active = False
+                self.hud_silk_up_animating_slots = []
+
+        if self.hud_soul_burst_active:
+            self.hud_soul_burst_anim.update(dt)
+            if self.hud_soul_burst_anim.is_finished():
+                self.hud_soul_burst_active = False
+
+        if self.hud_spool_appear_active:
+            self.hud_spool_appear_anim.update(dt)
+            if self.hud_spool_appear_anim.is_finished():
+                self.hud_spool_appear_active = False
+                self.hud_show_spool_sprite = True
+
+    def _sync_hud_resource_triggers(self):
+        """Trigger HUD animations based on changes in health and silk resources."""
+        if self.health < self._hud_prev_health:
+            self.hud_health_break_active = True
+            self.hud_health_break_anim.set_animation("play", reset=True)
+            self.hud_health_break_slot = max(0, min(self.max_health - 1, self._hud_prev_health - 1))
+            self.hud_health_appear_slots = []
+            self.trigger_hud_flash()
+        elif self.health > self._hud_prev_health:
+            start_slot = max(0, min(self.max_health, self._hud_prev_health))
+            end_slot = max(0, min(self.max_health, self.health))
+            self.hud_health_appear_slots = list(range(start_slot, end_slot))
+            if self.hud_health_appear_slots:
+                self.hud_health_appear_active = True
+                self.hud_health_appear_anim.set_animation("play", reset=True)
+
+        if self.silk < self._hud_prev_silk:
+            self.hud_silk_down_active = True
+            self.hud_silk_down_anim.set_animation("play", reset=True)
+            self.hud_silk_up_active = False
+            self.hud_silk_up_slots = []
+            self.hud_silk_up_animating_slots = []
+            self.hud_silk_up_queue = []
+        elif self.silk > self._hud_prev_silk:
+            start_slot = max(0, min(self.max_silk, self._hud_prev_silk))
+            end_slot = max(0, min(self.max_silk, self.silk))
+            self.hud_silk_up_slots = list(range(start_slot, end_slot))
+            for slot in self.hud_silk_up_slots:
+                if slot in self.hud_silk_up_animating_slots or slot in self.hud_silk_up_queue:
+                    continue
+                self.hud_silk_up_queue.append(slot)
+            if self.hud_silk_up_queue and not self.hud_silk_up_active:
+                next_slot = self.hud_silk_up_queue.pop(0)
+                self.hud_silk_up_active = True
+                self.hud_silk_up_animating_slots = [next_slot]
+                self.hud_silk_up_anim.set_animation("play", reset=True)
+
+        if self.silk >= self.max_silk:
+            if not self.hud_bind_orb_active:
+                self.hud_bind_orb_active = True
+                self.hud_bind_orb_anim.set_animation("play", reset=True)
+        else:
+            self.hud_bind_orb_active = False
+
+        self._hud_prev_health = self.health
+        self._hud_prev_silk = self.silk
+
+    def _draw_hud_animation(self, screen, animation, anchor_x, anchor_y, offset_key):
+        """Draw a HUD animation centered at anchor plus its configured offset."""
+        frame = animation.get_current_frame()
+        if frame is None:
+            return
+        offset_x, offset_y = self.hud_animation_offsets.get(offset_key, (0, 0))
+        rect = frame.get_rect()
+        rect.center = (int(anchor_x + offset_x), int(anchor_y + offset_y))
+        screen.blit(frame, rect)
 
     def _animation_name_for_facing(self):
         """
@@ -777,6 +1067,7 @@ class Hornet:
             return
         self.is_dead = True
         self.death_animation_complete = False
+        self.death_finish_hold_timer = 0.0
         self.cancel_heal_channel()
         self.is_resting = False
         self.is_getting_off_bench = False
@@ -913,6 +1204,10 @@ class Hornet:
         self.rebound_land_active = False
         self.rebound_land_pending = False
         self.jump_pose_active = False
+        self.velocity_x = 0
+        # Launch upward so recoil visibly rises before gravity pulls Hornet down.
+        self.velocity_y = min(self.velocity_y, self.jump_initial_impulse * 0.7)
+        self.on_ground = False
 
     def _update_pose_animations(self, dt):
         """
@@ -925,11 +1220,11 @@ class Hornet:
             self._clear_pose_animation()
         else:
             if self.is_dead:
-                self._set_pose_animation("death", self.death_anim)
+                self._set_pose_animation("death", self.death_anim, effect_animation=self.heal_effect_anim)
             elif self.respawn_active:
                 self._set_pose_animation("respawn", self.respawn_anim)
             elif self.recoil_active:
-                self._set_pose_animation("recoil", self.recoil_anim)
+                self._set_pose_animation("recoil", self.recoil_anim, animation_name=self.recoil_animation_name or self._animation_name_for_facing())
             elif self.stun_timer > 0.0:
                 self._set_pose_animation("roar_lock", self.roar_lock_anim)
             elif self.is_healing:
@@ -1035,12 +1330,18 @@ class Hornet:
                 self.active_pose_effect_animation.update(dt)
 
             if self.active_pose_key == "death" and self.active_pose_animation.is_finished():
-                self.death_animation_complete = True
+                if self.death_finish_hold_timer <= 0.0:
+                    self.death_finish_hold_timer = self.death_finish_hold_duration
+                else:
+                    self.death_finish_hold_timer = max(0.0, self.death_finish_hold_timer - dt)
+                    if self.death_finish_hold_timer <= 0.0:
+                        self.death_animation_complete = True
             elif self.active_pose_key == "respawn" and self.active_pose_animation.is_finished():
                 self.respawn_active = False
                 self._clear_pose_animation()
             elif self.active_pose_key == "recoil" and self.active_pose_animation.is_finished():
                 self.recoil_active = False
+                self.recoil_animation_name = None
                 self._clear_pose_animation()
             elif self.active_pose_key in {"rebound_1", "rebound_2"} and self.active_pose_animation.is_finished():
                 self.active_rebound_key = None
@@ -1126,7 +1427,7 @@ class Hornet:
         if self.is_resting and not self.respawn_active and (move_left_pressed or move_right_pressed):
             self._start_get_off_bench(move_left_pressed, move_right_pressed)
 
-        if self.is_healing or self.is_resting or self.is_climbing_ledge or self.stun_timer > 0.0:
+        if self.is_healing or self.is_resting or self.is_climbing_ledge or self.stun_timer > 0.0 or self.recoil_active:
             self.look_direction = 0
             self.look_hold_timer = 0.0
             self.velocity_x = 0
@@ -1171,6 +1472,7 @@ class Hornet:
                 self._jumping = True
                 self.jump_pose_active = True
                 self._jump_hold_timer = 0.0
+                self.facing_right = True
                 self._start_jump_effect()
                 try:
                     self.audio_manager.play_sfx("hornet_jump")
@@ -1183,6 +1485,7 @@ class Hornet:
                 self._jumping = True
                 self.jump_pose_active = True
                 self._jump_hold_timer = 0.0
+                self.facing_right = False
                 self._start_jump_effect()
                 try:
                     self.audio_manager.play_sfx("hornet_jump")
@@ -1207,7 +1510,10 @@ class Hornet:
             self._jumping = False
 
         _prev_facing = self.facing_right
-        self._update_facing_from_motion(self.velocity_x + self.knockback_velocity_x + self.attack_recoil_velocity_x)
+        # Keep incoming-damage recoil from changing Hornet's facing.
+        if not self.recoil_active:
+            # Ignore attack recoil when choosing facing so enemy-hit recoil does not flip direction.
+            self._update_facing_from_motion(self.velocity_x + self.knockback_velocity_x)
         if self.on_ground and self.facing_right != _prev_facing:
             self.turn_pose_active = True
 
@@ -1221,11 +1527,12 @@ class Hornet:
             if keys[pygame.K_w]:
                 self.attack_hitbox_direction = "up"
                 self._start_up_attack_animation()
-            elif keys[pygame.K_s] and not self.on_ground:
+            elif keys[pygame.K_s] and not self.on_ground and self.down_attack_air_ready:
                 self.attack_hitbox_direction = "down"
                 self.is_down_attacking = True
                 self.jump_pose_active = False
                 self.down_attack_momentum_active = True
+                self.down_attack_air_ready = False
                 self._start_down_attack_animation()
                 # Fast diagonal charge in facing direction + downward
                 direction = 1 if self.facing_right else -1
@@ -1336,26 +1643,32 @@ class Hornet:
             self.attack_hitbox_timer = self.attack_hitbox_duration
         return self.attack_hitbox.copy()
 
-    def apply_attack_recoil_on_hit(self):
+    def apply_attack_recoil_on_hit(self, enemy_rect=None):
         """Apply recoil knockback once per swing when hitting an enemy."""
         if self.attack_recoil_applied:
             return
         facing_direction = 1 if self.attack_hitbox_facing_right else -1
         self.attack_recoil_velocity_x = -facing_direction * self.attack_recoil_strength
         self.attack_recoil_applied = True
+        if enemy_rect is not None:
+            self.hit_flash_world_center = enemy_rect.copy()
+        else:
+            self.hit_flash_world_center = None
         self._start_hit_flash()
+        self.trigger_hud_flash()
 
     def gain_silk(self, amount):
         """Add silk, clamped to the maximum."""
         if amount <= 0:
             return
         self.silk = min(self.max_silk, self.silk + amount)
+        self._sync_hud_resource_triggers()
 
     def start_heal_channel(self):
-        """Begin the heal channel, consuming all silk upfront."""
+        """Begin the heal channel only when the silk bar is full."""
         if self.is_healing or self.is_dead:
             return False
-        if self.silk <= 0:
+        if self.silk < self.max_silk:
             return False
         if self.health >= self.max_health:
             return False
@@ -1365,6 +1678,9 @@ class Hornet:
         self.heal_in_air = not self.on_ground
         self.heal_channel_timer = self.heal_channel_duration
         self._clear_attack_animations()
+        self.hud_soul_burst_active = True
+        self.hud_soul_burst_anim.set_animation("play", reset=True)
+        self._sync_hud_resource_triggers()
         return True
 
     def cancel_heal_channel(self):
@@ -1409,21 +1725,140 @@ class Hornet:
                 self.audio_manager.play_sfx("hornet_heal")
             except Exception:
                 pass  # Skip if sound doesn't exist
+            self.hud_health_appear_active = True
+            self.hud_health_appear_anim.set_animation("play", reset=True)
+            self._sync_hud_resource_triggers()
     
     def draw_health_bar(self, screen, x, y):
         """
-        Draw the hornet's health bar at the given screen position. 
-        It should stay there regardless of the camera position. 
-        Each health point (there are 5) is represented by one mask.png icon, and an empty slot is represented by a back square for now as a placeholder.
-        
+        Draw a fixed-position health HUD and overlay health animations.
+
+        Args:
+            screen: Target screen surface.
+            x (int): Base x of the health HUD.
+            y (int): Base y of the health HUD.
         """
+        icon_w = 16
+        icon_h = 16
+        pad = 14
 
-    def draw_silk_bar(self):
-        """Draw the silk resource bar on screen. Placeholder for future use."""
+        for i in range(self.health, self.max_health):
+            slot_x = x + i * (icon_w + pad)
+            slot_center_x = slot_x + icon_w // 2
+            slot_center_y = y + icon_h // 2
+            empty_rect = self.hud_health_break_last_frame.get_rect()
+            empty_offset_x, empty_offset_y = self.hud_animation_offsets.get("health_break", (0, 0))
+            empty_rect.center = (int(slot_center_x + empty_offset_x), int(slot_center_y + empty_offset_y))
+            screen.blit(self.hud_health_break_last_frame, empty_rect)
 
-        pass
+        for i in range(self.health):
+            slot_x = x + i * (icon_w + pad)
+            slot_center_x = slot_x + icon_w // 2
+            slot_center_y = y + icon_h // 2
+            filled_rect = self.hud_health_last_frame.get_rect()
+            filled_offset_x, filled_offset_y = self.hud_animation_offsets.get("health_appear", (0, 0))
+            filled_rect.center = (int(slot_center_x + filled_offset_x), int(slot_center_y + filled_offset_y))
+            screen.blit(self.hud_health_last_frame, filled_rect)
 
+        if self.hud_health_appear_active:
+            health_frame = self.hud_health_appear_anim.get_current_frame()
+            if health_frame is not None:
+                offset_x, offset_y = self.hud_animation_offsets.get("health_appear", (0, 0))
+                for slot_idx in self.hud_health_appear_slots:
+                    slot_center_x = x + slot_idx * (icon_w + pad) + icon_w // 2
+                    slot_center_y = y + icon_h // 2
+                    health_rect = health_frame.get_rect()
+                    health_rect.center = (int(slot_center_x + offset_x), int(slot_center_y + offset_y))
+                    screen.blit(health_frame, health_rect)
 
+        if self.hud_health_break_active:
+            slot_idx = self.hud_health_break_slot
+            if slot_idx is not None:
+                slot_center_x = x + slot_idx * (icon_w + pad) + icon_w // 2
+                slot_center_y = y + icon_h // 2
+                self._draw_hud_animation(screen, self.hud_health_break_anim, slot_center_x, slot_center_y, "health_break")
+
+    def draw_silk_bar(self, screen, x, y):
+        """
+        Draw a fixed-position silk HUD and overlay silk/bind animations.
+
+        Args:
+            screen: Target screen surface.
+            x (int): Base x of the silk HUD.
+            y (int): Base y of the silk HUD.
+        """
+        icon_w = 16
+        icon_h = 16
+        pad = -8
+        content_offset_x, content_offset_y = self.hud_animation_offsets.get("silk_content", (0, 0))
+
+        silk_center_x = x + ((self.max_silk * icon_w) + ((self.max_silk - 1) * pad)) // 2
+        silk_center_y = y + icon_h // 2
+
+        if self.hud_frame_appear_active:
+            self._draw_hud_animation(screen, self.hud_frame_appear_anim, silk_center_x, silk_center_y, "frame_appear")
+
+        if self.hud_bind_orb_active:
+            self._draw_hud_animation(screen, self.hud_bind_orb_anim, silk_center_x, silk_center_y, "bind_orb")
+
+        silk_content_center_x = silk_center_x + content_offset_x
+        silk_content_center_y = silk_center_y + content_offset_y
+
+        if self.hud_silk_down_active:
+            self._draw_hud_animation(screen, self.hud_silk_down_anim, silk_content_center_x, silk_content_center_y, "silk_down")
+
+        spool_center_x = x + 110 + content_offset_x
+        spool_center_y = y + 8 + content_offset_y
+
+        if self.hud_spool_appear_active:
+            self._draw_hud_animation(screen, self.hud_spool_appear_anim, spool_center_x, spool_center_y, "spool_appear")
+        elif self.hud_show_spool_sprite and self.hud_spool_image is not None:
+            spool_rect = self.hud_spool_image.get_rect()
+            spool_offset_x, spool_offset_y = self.hud_animation_offsets.get("spool_sprite", (0, 0))
+            spool_rect.center = (int(spool_center_x + spool_offset_x), int(spool_center_y + spool_offset_y))
+            screen.blit(self.hud_spool_image, spool_rect)
+
+        for i in range(self.silk):
+            slot_x = x + i * (icon_w + pad)
+            slot_center_x = slot_x + icon_w // 2 + content_offset_x
+            slot_center_y = y + icon_h // 2 + content_offset_y
+            filled_rect = self.hud_silk_up_last_frame.get_rect()
+            filled_offset_x, filled_offset_y = self.hud_animation_offsets.get("silk_up", (0, 0))
+            filled_rect.center = (int(slot_center_x + filled_offset_x), int(slot_center_y + filled_offset_y))
+            screen.blit(self.hud_silk_up_last_frame, filled_rect)
+
+        if self.hud_silk_up_active and self.hud_silk_up_animating_slots:
+            silk_up_frame = self.hud_silk_up_anim.get_current_frame()
+            if silk_up_frame is not None:
+                offset_x, offset_y = self.hud_animation_offsets.get("silk_up", (0, 0))
+                for slot_idx in self.hud_silk_up_animating_slots:
+                    slot_center_x = x + slot_idx * (icon_w + pad) + icon_w // 2 + content_offset_x
+                    slot_center_y = y + icon_h // 2 + content_offset_y
+                    silk_up_rect = silk_up_frame.get_rect()
+                    silk_up_rect.center = (int(slot_center_x + offset_x), int(slot_center_y + offset_y))
+                    screen.blit(silk_up_frame, silk_up_rect)
+
+        if self.hud_soul_burst_active:
+            self._draw_hud_animation(screen, self.hud_soul_burst_anim, silk_center_x, silk_center_y, "soul_burst")
+
+    def get_world_hitbox(self, camera_x=0, camera_y=0):
+        """Return a reduced world-space hurtbox used for enemy damage checks."""
+        world_rect = self.rect.copy()
+        world_rect.x += int(camera_x)
+        world_rect.y += int(camera_y)
+
+        inset_w = int(world_rect.width * self.hitbox_inset_x)
+        inset_h = int(world_rect.height * self.hitbox_inset_y)
+        hitbox = world_rect.inflate(-inset_w, -inset_h)
+
+        if hitbox.width < 8:
+            hitbox.width = 8
+            hitbox.centerx = world_rect.centerx
+        if hitbox.height < 8:
+            hitbox.height = 8
+            hitbox.centery = world_rect.centery
+
+        return hitbox
 
     def take_damage(self, damage, knockback_direction=0):
         """Apply damage and knockback to the player."""
@@ -1442,17 +1877,22 @@ class Hornet:
         if self.is_mantle_canceling:
             self.is_mantle_canceling = False
         self.health = max(0, self.health - damage)
+        self._sync_hud_resource_triggers()
 
         if self.health <= 0:
             self._start_death_animation()
         else:
+            self.recoil_animation_name = self._animation_name_for_facing()
             self._start_recoil()
+            self._start_hit_flash()
             self._start_charged_effect()
 
         if knockback_direction < 0:
-            self.knockback_velocity_x = -self.knockback_strength
+            self.knockback_velocity_x = -self.knockback_strength * 1.6
+            self.rect.x -= int(28 * config.scale_x)
         elif knockback_direction > 0:
-            self.knockback_velocity_x = self.knockback_strength
+            self.knockback_velocity_x = self.knockback_strength * 1.6
+            self.rect.x += int(28 * config.scale_x)
 
     def rebound_from_down_attack(self, enemy_rect=None, camera_y=0):
         """Bounce Hornet upward after a successful down-attack hit."""
@@ -1479,6 +1919,7 @@ class Hornet:
         self._rebound_available = False
         self._jump_hold_timer = 0.0
         self.is_down_attacking = False
+        self.down_attack_air_ready = True
         self.down_attack_rebound_timer = max(self.down_attack_rebound_timer, 0.12)
         return True
     
@@ -1511,6 +1952,9 @@ class Hornet:
             self.down_attack_jump_lock_timer = max(0.0, self.down_attack_jump_lock_timer - dt)
         if self.stun_timer > 0.0:
             self.stun_timer = max(0.0, self.stun_timer - dt)
+
+        self._sync_hud_resource_triggers()
+        self._update_hud_animations(dt)
 
         self._update_attack_animations(dt)
 
@@ -1564,6 +2008,7 @@ class Hornet:
                 self.on_ground = True
                 self.landed_this_frame = True
                 self.jump_pose_active = False
+                self.down_attack_air_ready = True
         elif self.is_mantle_clinging:
             if self._mantle_cling_world_x is not None:
                 self.rect.x = int(self._mantle_cling_world_x - camera_x)
@@ -1635,6 +2080,7 @@ class Hornet:
                     self.rect.y = int(world_rect.y - camera_y)
                     self.velocity_y = 0
                     self.on_ground = True
+                    self.down_attack_air_ready = True
                     if self.down_attack_momentum_active:
                         self.knockback_velocity_x = 0.0
                         self.down_attack_momentum_active = False
@@ -1798,7 +2244,7 @@ class Hornet:
         if self.health <= 0:
             self.health = 0
     
-    def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
+    def draw(self, screen, look_y_offset=0, screen_offset=(0, 0), camera_x=0, camera_y=0):
         """Draw Hornet on screen with the given vertical look offset."""
         draw_rect = self.rect.copy()
         draw_rect.x += int(screen_offset[0])
@@ -1932,70 +2378,50 @@ class Hornet:
             hit_flash_frame = self.hit_flash_anim.get_current_frame()
             if hit_flash_frame is not None:
                 hit_flash_rect = hit_flash_frame.get_rect()
-                if draw_hitbox_rect is not None:
+                if self.hit_flash_world_center is not None:
+                    enemy_rect = self.hit_flash_world_center
+                    hit_flash_rect.center = (
+                        int(enemy_rect.centerx - camera_x + screen_offset[0]),
+                        int(enemy_rect.centery - camera_y + look_y_offset + screen_offset[1]),
+                    )
+                    screen.blit(hit_flash_frame, hit_flash_rect)
+                elif draw_hitbox_rect is not None:
                     hit_flash_rect.center = draw_hitbox_rect.center
+                    effect_offset_x, effect_offset_y = apply_facing_offset(self.pose_effect_offsets.get("hit_flash", (0, 0)))
+                    hit_flash_rect.x += int(effect_offset_x)
+                    hit_flash_rect.y += int(effect_offset_y)
+                    screen.blit(hit_flash_frame, hit_flash_rect)
                 else:
                     hit_flash_rect.center = draw_rect.center
-                effect_offset_x, effect_offset_y = apply_facing_offset(self.pose_effect_offsets.get("hit_flash", (0, 0)))
-                hit_flash_rect.x += int(effect_offset_x)
-                hit_flash_rect.y += int(effect_offset_y)
-                screen.blit(hit_flash_frame, hit_flash_rect)
+                    effect_offset_x, effect_offset_y = apply_facing_offset(self.pose_effect_offsets.get("hit_flash", (0, 0)))
+                    hit_flash_rect.x += int(effect_offset_x)
+                    hit_flash_rect.y += int(effect_offset_y)
+                    screen.blit(hit_flash_frame, hit_flash_rect)
         
         instructions_draw_x = 10
         instructions_draw_y = config.screen_height - 550
-        instructions_text = "Instructions:\nPress D to move right\nPress A to move left\nPress W to look up\nPress S to look down\nPress space to jump\nPress J to attack"
-        lines = instructions_text.split('\n')
-        for i, line in enumerate(lines):
-            line_surface = config.font.render(line, True, config.white)
+        if self._instruction_line_surfaces is None:
+            instructions_text = "Instructions:\nPress D to move right\nPress A to move left\nPress W to look up\nPress S to look down\nPress space to jump\nPress J to attack"
+            self._instruction_line_surfaces = [
+                config.font.render(line, True, config.white)
+                for line in instructions_text.split('\n')
+            ]
+        for i, line_surface in enumerate(self._instruction_line_surfaces):
             line_y = instructions_draw_y + (i * config.font.get_linesize())
             screen.blit(line_surface, (instructions_draw_x, line_y))
-        
-        #draw health bar (updates with numeric health value)
-        class HealthBar(pygame.sprite.Sprite):
-            def __init__(self,height,width, color = (255,255,255)):
-                super().__init__()
-                self.image = pygame.Surface((width, height),pygame.SRCALPHA)
-                self.image.fill((0,0,0,0))
-                pygame.draw.rect(self.image, color, pygame.Rect(0, 0, width, height))
-                self.rect = self.image.get_rect()
-        all_health_bar = pygame.sprite.Group()
-        icon_w = 16
-        icon_h = 16
-        pad = 4
-        start_x, start_y = 10, 10
-        for i in range(self.health):
-            hb = HealthBar(icon_w, icon_h)
-            hb.rect.topleft = (start_x + i*(icon_w + pad), start_y)
-            all_health_bar.add(hb)
-        all_health_bar.draw(screen)
-        
-        class SilkBar(pygame.sprite.Sprite):
-            def __init__(self,height, width, color = (255,255,255)):
-                super().__init__()
-                self.image = pygame.Surface((width, height),pygame.SRCALPHA)
-                self.image.fill((0,0,0,0))
-                pygame.draw.rect(self.image, color, pygame.Rect(0, 0, width, height))
-                self.rect = self.image.get_rect()
-        all_silk_bar = pygame.sprite.Group()
-        icon_w = 16
-        icon_h = 16
-        pad = 4
-        start_x, start_y = 10, 40
-        for i in range(self.silk):
-            sb = SilkBar(icon_w, icon_h)
-            sb.rect.topleft = (start_x + i*(icon_w + pad), start_y)
-            all_silk_bar.add(sb)
-        all_silk_bar.draw(screen)
 
+        health_x, health_y = self.hud_base_positions["health"]
+        silk_x, silk_y = self.hud_base_positions["silk"]
+        self.draw_silk_bar(screen, silk_x, silk_y)
+        self.draw_health_bar(screen, health_x, health_y)
 
-
-                
-        
-
-
-    
     def reset_position(self, x, y):
-        """Reset Hornet to the given position and clear all movement/combat state."""
+        """
+        Reset Hornet to the given position and clear all movement/combat state.
+        args:
+            x (int): The x-coordinate of the new position.
+            y (int): The y-coordinate of the new position.
+        """
         self.rect.midbottom = (x, y)
         self.velocity_x = 0
         self.velocity_y = 0
@@ -2013,6 +2439,7 @@ class Hornet:
         self.stun_timer = 0.0
         self.is_dead = False
         self.death_animation_complete = False
+        self.death_finish_hold_timer = 0.0
         self.charged_effect_active = False
         self.jump_effect_active = False
         self.hit_flash_active = False
@@ -2037,6 +2464,7 @@ class Hornet:
         self.attack_recoil_applied = False
         self.is_down_attacking = False
         self.down_attack_momentum_active = False
+        self.down_attack_air_ready = True
         self.down_attack_rebound_timer = 0.0
         self.down_attack_jump_lock_timer = 0.0
         self.jump_pose_active = False
@@ -2044,6 +2472,7 @@ class Hornet:
         self.rebound_land_active = False
         self.rebound_land_pending = False
         self.recoil_active = False
+        self.recoil_animation_name = None
         self.respawn_active = False
         self.turn_pose_active = False
         self.move_input_x = 0
@@ -2062,3 +2491,9 @@ class Hornet:
         self.touching_wall_left = False
         self.touching_wall_right = False
         self.camera_x_correction = 0.0
+        self._hud_prev_health = self.health
+        self._hud_prev_silk = self.silk
+        self.hud_silk_up_slots = []
+        self.hud_silk_up_animating_slots = []
+        self.hit_flash_world_center = None
+        self._trigger_hud_enter_game()

@@ -27,7 +27,17 @@ Expand-Archive -Path $ArtifactZipPath -DestinationPath $tempExtract -Force
 
 $appPath = Get-ChildItem -Path $tempExtract -Filter 'Silksong.app' -Recurse -Directory | Select-Object -First 1
 if (-not $appPath) {
-    throw 'Silksong.app not found in artifact zip. Make sure you downloaded the macOS artifact.'
+    # GitHub artifact downloads often wrap the real build zip inside another zip.
+    $innerZip = Get-ChildItem -Path $tempExtract -Filter '*.zip' -Recurse -File | Select-Object -First 1
+    if ($innerZip) {
+        $innerExtract = Join-Path $tempExtract '_inner_zip'
+        Expand-Archive -Path $innerZip.FullName -DestinationPath $innerExtract -Force
+        $appPath = Get-ChildItem -Path $innerExtract -Filter 'Silksong.app' -Recurse -Directory | Select-Object -First 1
+    }
+}
+
+if (-not $appPath) {
+    throw 'Silksong.app not found after extracting artifact. Confirm the workflow completed successfully and produced Silksong.app.'
 }
 
 Copy-Item -Path $appPath.FullName -Destination $macosDir -Recurse -Force

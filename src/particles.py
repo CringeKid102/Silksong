@@ -27,6 +27,19 @@ class ParticleSystem:
         
         # Surface cache for particle rendering
         self._surface_cache = {}
+
+        # Gameplay/world particle effects
+        self.gameplay_particles: List[Dict] = []
+        self.fung_mote_image = None
+        self.mossbone_small_frames: List[pygame.Surface] = []
+        self.coral_particle_image = None
+        self.aspid_particle_image = None
+        self.mossbone_spawn_timer = 0.0
+        self.mossbone_spawn_interval = 0.35
+        self.coral_aspid_spawn_timer = 0.0
+        self.coral_aspid_spawn_interval = 0.22
+        self.max_gameplay_particles = 300
+        self.immediate_offscreen_cull = True
         
     def load_ember_image(self, image_path):
         """Load the standard ember particle image."""
@@ -35,6 +48,223 @@ class ParticleSystem:
     def load_ember_round_image(self, image_path):
         """Load the round background ember particle image."""
         self.ember_round_image = pygame.image.load(image_path).convert_alpha()
+
+    def load_gameplay_particle_images(self, fung_mote_path, mossbone_small_path, coral_particle_path, aspid_particle_path):
+        """Load sprite assets used by gameplay particles."""
+        self.fung_mote_image = pygame.image.load(fung_mote_path).convert_alpha()
+        self.coral_particle_image = pygame.image.load(coral_particle_path).convert_alpha()
+        self.aspid_particle_image = pygame.image.load(aspid_particle_path).convert_alpha()
+
+        mossbone_sheet = pygame.image.load(mossbone_small_path).convert_alpha()
+        frame_w, frame_h = 89, 78
+        cols = max(1, mossbone_sheet.get_width() // frame_w)
+        rows = max(1, mossbone_sheet.get_height() // frame_h)
+        self.mossbone_small_frames = []
+        for row in range(rows):
+            for col in range(cols):
+                frame_rect = pygame.Rect(col * frame_w, row * frame_h, frame_w, frame_h)
+                if frame_rect.right > mossbone_sheet.get_width() or frame_rect.bottom > mossbone_sheet.get_height():
+                    continue
+                self.mossbone_small_frames.append(mossbone_sheet.subsurface(frame_rect).copy())
+
+    def _can_spawn_gameplay_particle(self):
+        """Return True if there is room for one more gameplay particle."""
+        return len(self.gameplay_particles) < self.max_gameplay_particles
+
+    def spawn_fung_mote_death_burst(self, world_x, world_y, ground_y, count=None):
+        """Spawn a one-shot burst of fung motes that arc, fall, and disappear on ground hit."""
+        if self.fung_mote_image is None:
+            return
+
+        burst_count = random.randint(15, 20) if count is None else max(1, int(count))
+        for _ in range(burst_count):
+            if not self._can_spawn_gameplay_particle():
+                break
+
+            self.gameplay_particles.append({
+                'type': 'fung_mote',
+                'x': float(world_x) + random.uniform(-14.0, 14.0),
+                'y': float(world_y) + random.uniform(-10.0, 8.0),
+                'vx': random.uniform(-240.0, 240.0),
+                'vy': random.uniform(-820.0, -420.0),
+                'gravity': random.uniform(1700.0, 2100.0),
+                'ground_y': float(ground_y),
+                'image': self.fung_mote_image,
+                'scale': random.uniform(0.55, 0.95),
+                'rotation': random.uniform(0.0, 360.0),
+                'rot_speed': random.uniform(-220.0, 220.0),
+                'life': random.uniform(1.8, 2.5),
+            })
+
+    def _spawn_mossbone_insect(self, camera_world_rect):
+        """Spawn one animated mossbone insect around the current camera view."""
+        if not self.mossbone_small_frames or not self._can_spawn_gameplay_particle():
+            return
+
+        margin = 260
+        spawn_x = random.uniform(camera_world_rect.left - margin, camera_world_rect.right + margin)
+        spawn_y = random.uniform(camera_world_rect.top - margin, camera_world_rect.bottom + margin)
+        scale = random.uniform(0.35, 0.65)
+        self.gameplay_particles.append({
+            'type': 'mossbone_insect',
+            'x': spawn_x,
+            'y': spawn_y,
+            'base_vx': random.uniform(-55.0, 90.0),
+            'base_vy': random.uniform(-45.0, 45.0),
+            'wander_phase': random.uniform(0.0, math.pi * 2.0),
+            'wander_speed': random.uniform(0.9, 1.8),
+            'wander_amp_x': random.uniform(25.0, 65.0),
+            'wander_amp_y': random.uniform(18.0, 55.0),
+            'anim_time': 0.0,
+            'anim_fps': random.uniform(8.0, 13.0),
+            'anim_index': random.randrange(len(self.mossbone_small_frames)),
+            'scale': scale,
+            'life': random.uniform(18.0, 32.0),
+        })
+
+    def _spawn_coral_or_aspid_particle(self, camera_world_rect):
+        """Spawn one drifting particle that generally moves bottom-left to top-right."""
+        if not self._can_spawn_gameplay_particle():
+            return
+
+        image = self.coral_particle_image if random.random() < 0.5 else self.aspid_particle_image
+        if image is None:
+            return
+
+        spawn_x = random.uniform(camera_world_rect.left - 80, camera_world_rect.right - 20)
+        spawn_y = random.uniform(camera_world_rect.bottom - 80, camera_world_rect.bottom + 160)
+        self.gameplay_particles.append({
+            'type': 'coral_aspid',
+            'x': spawn_x,
+            'y': spawn_y,
+            'vx': random.uniform(45.0, 110.0),
+            'vy': random.uniform(-165.0, -90.0),
+            'jitter_timer': random.uniform(0.08, 0.22),
+            'image': image,
+            'scale': random.uniform(0.45, 0.95),
+            'rotation': random.uniform(-35.0, 35.0),
+            'rot_speed': random.uniform(-48.0, 48.0),
+            'life': random.uniform(8.0, 15.0),
+        })
+
+    def update_gameplay_particles(self, dt, camera_world_rect, ground_colliders=None):
+        """Advance world-space gameplay particles and maintain ambient spawners."""
+        if camera_world_rect is None:
+            return
+
+        self.mossbone_spawn_timer += dt
+        while self.mossbone_spawn_timer >= self.mossbone_spawn_interval:
+            self.mossbone_spawn_timer -= self.mossbone_spawn_interval
+            mossbone_count = sum(1 for p in self.gameplay_particles if p['type'] == 'mossbone_insect')
+            if mossbone_count < 22:
+                self._spawn_mossbone_insect(camera_world_rect)
+
+        self.coral_aspid_spawn_timer += dt
+        while self.coral_aspid_spawn_timer >= self.coral_aspid_spawn_interval:
+            self.coral_aspid_spawn_timer -= self.coral_aspid_spawn_interval
+            drift_count = sum(1 for p in self.gameplay_particles if p['type'] == 'coral_aspid')
+            if drift_count < 46:
+                self._spawn_coral_or_aspid_particle(camera_world_rect)
+
+        alive_particles = []
+        min_x = float(camera_world_rect.left)
+        max_x = float(camera_world_rect.right)
+        min_y = float(camera_world_rect.top)
+        max_y = float(camera_world_rect.bottom)
+
+        for p in self.gameplay_particles:
+            p['life'] -= dt
+            if p['life'] <= 0.0:
+                continue
+
+            particle_type = p.get('type')
+            if particle_type == 'fung_mote':
+                p['x'] += p['vx'] * dt
+                p['y'] += p['vy'] * dt
+                p['vy'] += p['gravity'] * dt
+                p['rotation'] += p.get('rot_speed', 0.0) * dt
+                if p['y'] >= p.get('ground_y', max_y):
+                    continue
+            elif particle_type == 'mossbone_insect':
+                p['wander_phase'] += p['wander_speed'] * dt
+                drift_x = math.sin(p['wander_phase']) * p['wander_amp_x']
+                drift_y = math.cos(p['wander_phase'] * 1.23) * p['wander_amp_y']
+                p['x'] += (p['base_vx'] + drift_x) * dt
+                p['y'] += (p['base_vy'] + drift_y) * dt
+                p['anim_time'] += dt
+                frame_count = max(1, len(self.mossbone_small_frames))
+                p['anim_index'] = int(p['anim_time'] * p['anim_fps']) % frame_count
+            elif particle_type == 'coral_aspid':
+                p['jitter_timer'] -= dt
+                if p['jitter_timer'] <= 0.0:
+                    p['jitter_timer'] = random.uniform(0.08, 0.24)
+                    p['vx'] += random.uniform(-30.0, 34.0)
+                    p['vy'] += random.uniform(-36.0, 18.0)
+                    p['vx'] = max(20.0, min(140.0, p['vx']))
+                    p['vy'] = max(-220.0, min(-35.0, p['vy']))
+                p['x'] += p['vx'] * dt
+                p['y'] += p['vy'] * dt
+                p['rotation'] += p.get('rot_speed', 0.0) * dt
+
+            image = p.get('image')
+            if particle_type == 'mossbone_insect' and self.mossbone_small_frames:
+                frame_index = int(p.get('anim_index', 0)) % len(self.mossbone_small_frames)
+                image = self.mossbone_small_frames[frame_index]
+
+            if image is not None:
+                base_w, base_h = image.get_size()
+                scale = max(0.1, float(p.get('scale', 1.0)))
+                half_w = max(1.0, (base_w * scale) * 0.5)
+                half_h = max(1.0, (base_h * scale) * 0.5)
+            else:
+                half_w = 2.0
+                half_h = 2.0
+
+            if (
+                p['x'] + half_w < min_x
+                or p['x'] - half_w > max_x
+                or p['y'] + half_h < min_y
+                or p['y'] - half_h > max_y
+            ):
+                continue
+
+            alive_particles.append(p)
+
+        self.gameplay_particles = alive_particles
+
+    def draw_gameplay_particles(self, surface: pygame.Surface, camera_x=0, camera_y=0, look_y_offset=0, screen_offset=(0, 0)):
+        """Draw world-space gameplay particles transformed into screen space."""
+        if not self.gameplay_particles:
+            return
+
+        shake_x = int(screen_offset[0])
+        shake_y = int(screen_offset[1])
+
+        for p in self.gameplay_particles:
+            image = p.get('image')
+            if p.get('type') == 'mossbone_insect':
+                if not self.mossbone_small_frames:
+                    continue
+                frame_index = int(p.get('anim_index', 0)) % len(self.mossbone_small_frames)
+                image = self.mossbone_small_frames[frame_index]
+
+            if image is None:
+                continue
+
+            base_w, base_h = image.get_size()
+            scale = max(0.1, float(p.get('scale', 1.0)))
+            draw_w = max(1, int(base_w * scale))
+            draw_h = max(1, int(base_h * scale))
+            scaled = pygame.transform.smoothscale(image, (draw_w, draw_h))
+
+            rotation = float(p.get('rotation', 0.0))
+            if abs(rotation) > 0.01:
+                scaled = pygame.transform.rotate(scaled, rotation)
+
+            screen_x = int(p['x'] - camera_x + shake_x)
+            screen_y = int(p['y'] - camera_y - look_y_offset + shake_y)
+            draw_rect = scaled.get_rect(center=(screen_x, screen_y))
+            surface.blit(scaled, draw_rect)
         
     def enable_ember_spawning(self, enabled=True):
         """Toggle automatic ember particle spawning."""
@@ -209,6 +439,8 @@ class ParticleSystem:
         """Advance all particles, floating texts, screen shake, and auto-spawning."""
         # Update particles
         alive_particles = []
+        screen_w = self.screen_width or 0
+        screen_h = self.screen_height or 0
         for p in self.particles:
             p['x'] += p['vx'] * dt
             p['y'] += p['vy'] * dt
@@ -225,9 +457,26 @@ class ParticleSystem:
             if p['type'] == 'ember':
                 p['time'] += dt
                 p['x'] += math.sin(p['time'] * p['sin_freq']) * p['sin_amp']
-            
-            if p['life'] > 0:
-                alive_particles.append(p)
+
+            if p['life'] <= 0:
+                continue
+
+            if self.immediate_offscreen_cull and screen_w > 0 and screen_h > 0:
+                if p['type'] == 'ember' and p.get('image'):
+                    img = p['image']
+                    radius = max(1, int(max(img.get_width(), img.get_height()) * p.get('size', 1.0) * 0.5 / 3.0))
+                else:
+                    radius = max(1, int(p.get('size', 2)))
+
+                if (
+                    p['x'] + radius < 0
+                    or p['x'] - radius > screen_w
+                    or p['y'] + radius < 0
+                    or p['y'] - radius > screen_h
+                ):
+                    continue
+
+            alive_particles.append(p)
         self.particles = alive_particles
 
         # Update floating texts

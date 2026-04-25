@@ -1,5 +1,6 @@
 import pygame
 import math
+import random
 from animation import Animation
 from audio import AudioManager
 from asset_paths import resolve_image_path
@@ -20,7 +21,7 @@ class MossMother:
             image_path,
             frame_width=self.FRAME_WIDTH,
             frame_height=self.FRAME_HEIGHT,
-            scale=self.ANIMATION_SCALE * config.scale_y,
+            scale=self.ANIMATION_SCALE * config.scale_y * config.ENEMY_SCALE_MULTIPLIER,
         )
         self._load_animations()
         self.animations = self.animation.animations
@@ -108,8 +109,8 @@ class MossMother:
         self.reposition_target = (0.0, 0.0)
 
         # Stagger / health
-        self.max_health = 3000
-        self.health = 3000
+        self.max_health = 10
+        self.health = 10
         self.stagger_count = 0
         self.max_staggers = 2
         self.stagger_thresholds = [int(self.max_health * 0.66), int(self.max_health * 0.33)]
@@ -129,6 +130,41 @@ class MossMother:
         # Camera velocity cache
         self._camera_velocity = [0, 0]
 
+        # Death sequence: roar lock phase, then split into 3 falling pieces.
+        self.is_dying = False
+        self.death_sequence_complete = False
+        self.death_roar_active = False
+        self.death_roar_duration = 1.0
+        self.death_roar_timer = 0.0
+        self.death_body_visible = True
+        self.death_parts = []
+        self.death_part_gravity = 1800.0
+        self._death_roar_triggered = False
+        self.hitbox_inset_x = 0.22
+        self.hitbox_inset_y = 0.18
+        self._load_death_part_images()
+
+        # Per-animation draw offsets for easy visual tuning.
+        self.animation_draw_offsets = {
+            "default": (0, 0),
+            "turn_right": (0, 0),
+            "turn_left": (0, 0),
+            "idle_right": (0, 0),
+            "idle_left": (0, 0),
+            "wall_attack_intro_right": (0, 0),
+            "wall_attack_intro_left": (0, 0),
+            "wall_attack_loop_right": (0, 0),
+            "wall_attack_loop_left": (0, 0),
+            "charge_right": (0, 0),
+            "charge_left": (0, 0),
+            "charge_end_right": (0, 0),
+            "charge_end_left": (0, 0),
+            "stun_fall_right": (0, 0),
+            "stun_fall_left": (0, 0),
+            "stun_ground_right": (0, 0),
+            "stun_ground_left": (0, 0),
+        }
+
     def _load_animations(self):
         """Register all spritesheet animations for the Moss Mother."""
         self.animation.add_animation("turn_right", row=0, start_col=0, num_frames=5, speed=0.07, loop=False)
@@ -147,6 +183,113 @@ class MossMother:
         self.animation.add_animation("stun_fall_left", row=3, start_col=0, num_frames=1, flip_x=True, speed=0.1, loop=False)
         self.animation.add_animation("stun_ground_right", row=3, start_col=1, num_frames=1, speed=0.1, loop=False)
         self.animation.add_animation("stun_ground_left", row=3, start_col=1, num_frames=1, flip_x=True, speed=0.1, loop=False)
+
+    def _load_death_part_images(self):
+        """Load and scale the three Moss Mother death piece sprites."""
+        death_scale = self.ANIMATION_SCALE * config.scale_y * config.ENEMY_SCALE_MULTIPLIER
+        self.death_part_images = []
+        for idx in (1, 2, 3):
+            part_image = pygame.image.load(resolve_image_path(f"sprite/moss_mother_death_{idx}.png")).convert_alpha()
+            part_w, part_h = part_image.get_size()
+            scaled_size = (
+                max(1, int(part_w * death_scale)),
+                max(1, int(part_h * death_scale)),
+            )
+            self.death_part_images.append(pygame.transform.smoothscale(part_image, scaled_size))
+
+    def _start_death_sequence(self):
+        """Start death roar and prepare split pieces."""
+        self.is_dying = True
+        self.death_sequence_complete = False
+        self.death_roar_active = True
+        self.death_roar_timer = self.death_roar_duration
+        self.death_body_visible = True
+        self.death_parts = []
+        self._death_roar_triggered = True
+
+        # Cancel all active combat states during death sequence.
+        self.is_attacking = False
+        self.is_crying = False
+        self.is_repositioning = False
+        self.is_staggered = False
+        self.use_gravity = False
+        self.attack_contact_registered = False
+        self.phase_through = False
+        self.attack_timer = 0.0
+        self.attack_finish_anim_timer = 0.0
+        self.velocity_x = 0.0
+        self.velocity_y = 0.0
+
+    def consume_death_roar_trigger(self):
+        """Return True once when death roar starts (for Hornet roar-lock trigger)."""
+        triggered = self._death_roar_triggered
+        self._death_roar_triggered = False
+        return triggered
+
+    def _spawn_death_parts(self):
+        """Create three split parts at the current boss position before falling."""
+        if self.death_parts:
+            return
+
+        center_x, center_y = self.rect.center
+        x_offsets = (-40, 0, 40)
+        initial_vy = (-520.0, -640.0, -560.0)
+        for idx, image in enumerate(self.death_part_images):
+            part_rect = image.get_rect()
+            part_rect.center = (int(center_x + x_offsets[idx]), int(center_y))
+            base_vx = (-1, 0, 1)[idx] * 280.0
+            self.death_parts.append({
+                "image": image,
+                "rect": part_rect,
+                "velocity_x": base_vx + random.uniform(-260.0, 260.0),
+                "velocity_y": initial_vy[idx],
+                "landed": False,
+            })
+
+    def _update_death_parts(self, dt, collision_rects, camera_x=0, camera_y=0):
+        """Apply gravity/collision to split death parts until all settle on ground."""
+        if not self.death_parts:
+            return
+
+        for part in self.death_parts:
+            if part["landed"]:
+                continue
+
+            part["rect"].x += int(part["velocity_x"] * dt)
+            part["velocity_y"] += self.death_part_gravity * dt
+            part["rect"].y += int(part["velocity_y"] * dt)
+
+            landed = False
+            if collision_rects:
+                world_rect = part["rect"].copy()
+                world_rect.x += int(camera_x)
+                world_rect.y += int(camera_y)
+                previous_bottom = world_rect.bottom - int(part["velocity_y"] * dt)
+
+                landing_top = None
+                if part["velocity_y"] >= 0:
+                    for ground_rect in collision_rects:
+                        if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
+                            continue
+                        if previous_bottom <= ground_rect.top and world_rect.bottom >= ground_rect.top:
+                            if landing_top is None or ground_rect.top < landing_top:
+                                landing_top = ground_rect.top
+
+                if landing_top is not None:
+                    world_rect.bottom = int(landing_top)
+                    part["rect"].y = int(world_rect.y - camera_y)
+                    part["velocity_x"] = 0.0
+                    part["velocity_y"] = 0.0
+                    part["landed"] = True
+                    landed = True
+
+            if not landed and part["rect"].bottom > self.screen_height + 400:
+                part["rect"].bottom = self.screen_height + 400
+                part["velocity_x"] = 0.0
+                part["velocity_y"] = 0.0
+                part["landed"] = True
+
+        self.death_sequence_complete = all(part["landed"] for part in self.death_parts)
 
     def _set_animation(self, name, reset=False):
         """Switch to the named animation only if it differs from the current one."""
@@ -180,6 +323,8 @@ class MossMother:
         """
         if self.is_staggered:
             return "stun_ground" if self.on_ground else "stun_fall"
+        if self.death_roar_active:
+            return "wall_attack"
         if self.is_crying:
             return "wall_attack"
         if self.is_attacking:
@@ -503,9 +648,7 @@ class MossMother:
 
         def register_contact_once():
             if player_world_rect and not self.attack_contact_registered:
-                world_hitbox = self.rect.copy()
-                world_hitbox.x += int(camera_x)
-                world_hitbox.y += int(camera_y)
+                world_hitbox = self.get_world_hitbox(camera_x=camera_x, camera_y=camera_y)
                 if world_hitbox.colliderect(player_world_rect):
                     self.attack_contact_registered = True
                     self.phase_through = True
@@ -723,10 +866,14 @@ class MossMother:
             knockback_direction (int): -1 for left, 0 for none, 1 for right.
             apply_knockback (bool): Whether to apply horizontal knockback.
         """
-        if damage <= 0:
+        if damage <= 0 or self.is_dying:
             return
 
         self.health = max(0, self.health - damage)
+
+        if self.health <= 0:
+            self._start_death_sequence()
+            return
 
         if apply_knockback and not self.is_attacking:
             if knockback_direction < 0:
@@ -780,6 +927,13 @@ class MossMother:
         self.next_stagger_idx = 0
         self.stagger_count = 0
         self.health = self.max_health
+        self.is_dying = False
+        self.death_sequence_complete = False
+        self.death_roar_active = False
+        self.death_roar_timer = 0.0
+        self.death_body_visible = True
+        self.death_parts = []
+        self._death_roar_triggered = False
         self._set_animation("idle_right", reset=True)
 
     def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0, player_world_rect=None, arena_rect=None):
@@ -800,6 +954,27 @@ class MossMother:
         """
         self.rect.x -= int(camera_dx)
         self.rect.y -= int(camera_dy)
+        for part in self.death_parts:
+            part["rect"].x -= int(camera_dx)
+            part["rect"].y -= int(camera_dy)
+
+        if self.is_dying:
+            self.velocity_x = 0.0
+            self.velocity_y = 0.0
+            self.knockback_velocity_x = 0.0
+            self.attack_contact_registered = False
+            self.phase_through = False
+
+            if self.death_roar_active:
+                self.death_roar_timer = max(0.0, self.death_roar_timer - dt)
+                self._update_animation(dt)
+                if self.death_roar_timer <= 0.0:
+                    self.death_roar_active = False
+                    self.death_body_visible = False
+                    self._spawn_death_parts()
+            else:
+                self._update_death_parts(dt, collision_rects, camera_x=camera_x, camera_y=camera_y)
+            return
 
         if self.knockback_velocity_x > 0.0:
             self.knockback_velocity_x = max(0.0, self.knockback_velocity_x - self.knockback_decay * dt)
@@ -930,8 +1105,44 @@ class MossMother:
 
         self._update_animation(dt)
 
-    def draw(self, screen, look_y_offset=0):
-        """Draw the boss sprite on screen, offset by the vertical look pan."""
+    def _get_animation_draw_offset(self):
+        """Return the configured draw offset for the current animation."""
+        return self.animation_draw_offsets.get(self.current_animation_name, self.animation_draw_offsets.get("default", (0, 0)))
+
+    def get_world_hitbox(self, camera_x=0, camera_y=0):
+        """Return a reduced world-space hitbox used for combat interactions."""
+        world_rect = self.rect.copy()
+        world_rect.x += int(camera_x)
+        world_rect.y += int(camera_y)
+        inset_w = int(world_rect.width * self.hitbox_inset_x)
+        inset_h = int(world_rect.height * self.hitbox_inset_y)
+        hitbox = world_rect.inflate(-inset_w, -inset_h)
+        if hitbox.width < 8:
+            hitbox.width = 8
+            hitbox.centerx = world_rect.centerx
+        if hitbox.height < 8:
+            hitbox.height = 8
+            hitbox.centery = world_rect.centery
+        return hitbox
+
+    def get_draw_rect(self, look_y_offset=0, screen_offset=(0, 0)):
+        """Return the final draw rect after camera/look/screen offset tuning."""
         draw_rect = self.rect.copy()
-        draw_rect.y += look_y_offset
-        screen.blit(self.image, draw_rect)
+        draw_rect.x += int(screen_offset[0])
+        draw_rect.y += int(look_y_offset + screen_offset[1])
+        offset_x, offset_y = self._get_animation_draw_offset()
+        draw_rect.x += int(offset_x)
+        draw_rect.y += int(offset_y)
+        return draw_rect
+
+    def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
+        """Draw the boss sprite on screen, offset by the vertical look pan."""
+        if self.is_dying and not self.death_body_visible:
+            for part in self.death_parts:
+                draw_rect = part["rect"].copy()
+                draw_rect.x += int(screen_offset[0])
+                draw_rect.y += int(look_y_offset + screen_offset[1])
+                screen.blit(part["image"], draw_rect)
+            return
+
+        screen.blit(self.image, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))

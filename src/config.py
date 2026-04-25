@@ -19,6 +19,10 @@ screen_width, screen_height = info.current_w, info.current_h
 scale_x = screen_width / game_width
 scale_y = screen_height / game_height
 
+# Character sizing multipliers
+HORNET_SCALE_MULTIPLIER = 1.3
+ENEMY_SCALE_MULTIPLIER = 1.3
+
 # Fonts
 font_path = assets_path("fonts", "Perpetua Regular.otf")
 title_font_path = assets_path("fonts", "TrajanPro-Regular.ttf")

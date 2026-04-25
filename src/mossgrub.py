@@ -12,7 +12,7 @@ class MossGrub:
         image_path = resolve_image_path("spritesheet/enemy/mossgrub.png")
         frame_width = 128
         frame_height = 101
-        anim_scale = 0.45 * config.scale_y
+        anim_scale = 0.45 * config.scale_y * config.ENEMY_SCALE_MULTIPLIER
         self.animation = Animation(
             image_path,
             frame_width=frame_width,
@@ -61,8 +61,21 @@ class MossGrub:
         self._camera_velocity = [0, 0]
         
         # Health system
-        self.max_health = 1000
-        self.health = 1000
+        self.max_health = 2
+        self.health = 2
+
+        # Per-animation draw offsets for easy visual tuning.
+        self.animation_draw_offsets = {
+            "default": (0, 0),
+            "turn_right": (0, 0),
+            "turn_left": (0, 0),
+            "move_right": (0, 0),
+            "move_left": (0, 0),
+            "death_air_right": (0, 0),
+            "death_air_left": (0, 0),
+            "death_land_right": (0, 0),
+            "death_land_left": (0, 0),
+        }
 
         # Sub-pixel accumulator for horizontal movement precision.
         self._frac_x = 0.0
@@ -327,13 +340,23 @@ class MossGrub:
 
         self._update_animation(dt)
 
-    def draw(self, screen, look_y_offset=0):
-        """Draw the mossgrub on screen."""
-        # Calculate draw position with look offset
-        draw_rect = self.rect.copy()
-        draw_rect.y += look_y_offset
+    def _get_animation_draw_offset(self):
+        """Return the configured draw offset for the current animation."""
+        return self.animation_draw_offsets.get(self.current_animation_name, self.animation_draw_offsets.get("default", (0, 0)))
 
-        screen.blit(self.image, draw_rect)
+    def get_draw_rect(self, look_y_offset=0, screen_offset=(0, 0)):
+        """Return the final draw rect after camera/look/screen offset tuning."""
+        draw_rect = self.rect.copy()
+        draw_rect.x += int(screen_offset[0])
+        draw_rect.y += int(look_y_offset + screen_offset[1])
+        offset_x, offset_y = self._get_animation_draw_offset()
+        draw_rect.x += int(offset_x)
+        draw_rect.y += int(offset_y)
+        return draw_rect
+
+    def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
+        """Draw the mossgrub on screen."""
+        screen.blit(self.image, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))
     
     def reset_position(self, x, y):
         """Reset the mossgrub to the given spawn position."""
