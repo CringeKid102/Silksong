@@ -4,6 +4,16 @@ from audio import AudioManager
 from asset_paths import resolve_image_path
 import config
 
+
+def _apply_white_overlay(surface, intensity):
+    """Return a copy of surface blended with white at the given intensity (0-255)."""
+    result = surface.copy()
+    white_layer = pygame.Surface(surface.get_size())
+    white_layer.fill((intensity, intensity, intensity))
+    result.blit(white_layer, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+    return result
+
+
 class MossGrub:
     """Basic patrol enemy that walks back and forth."""
     
@@ -79,6 +89,7 @@ class MossGrub:
 
         # Sub-pixel accumulator for horizontal movement precision.
         self._frac_x = 0.0
+        self.hit_white_timer = 0.0
     
     def _load_mossgrub_animation(self):
         """Load mossgrub animations from spritesheet."""
@@ -172,6 +183,7 @@ class MossGrub:
         if damage <= 0:
             return
         else:
+            self.hit_white_timer = 0.12
             self.health = max(0, self.health - damage)
             if knockback_direction < 0:
                 self.knockback_velocity_x = -self.knockback_strength
@@ -194,6 +206,8 @@ class MossGrub:
         # Compensate for camera movement so mossgrub stays at its world position.
         self.rect.x -= int(camera_dx)
         self.rect.y -= int(camera_dy)
+        if self.hit_white_timer > 0.0:
+            self.hit_white_timer = max(0.0, self.hit_white_timer - dt)
 
         # Apply gravity
         self.velocity_y += self.gravity * dt
@@ -356,7 +370,8 @@ class MossGrub:
 
     def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
         """Draw the mossgrub on screen."""
-        screen.blit(self.image, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))
+        draw_surf = _apply_white_overlay(self.image, 255) if self.hit_white_timer > 0.0 else self.image
+        screen.blit(draw_surf, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))
     
     def reset_position(self, x, y):
         """Reset the mossgrub to the given spawn position."""

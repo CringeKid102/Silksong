@@ -1,9 +1,21 @@
 import pygame
+import math
 from audio import AudioManager
 from animation import Animation
 from bench import Bench
 from asset_paths import resolve_image_path
 import config
+
+
+def _apply_white_overlay(surface, intensity):
+    """Return a copy of surface blended with white at the given intensity (0-255)."""
+    result = surface.copy()
+    white_layer = pygame.Surface(surface.get_size())
+    white_layer.fill((intensity, intensity, intensity))
+    result.blit(white_layer, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+    return result
+
+
 class Hornet:
     """Player character with movement, combat, and platforming."""
     
@@ -508,6 +520,9 @@ class Hornet:
         self.hud_spool_appear_active = False
         self.hud_show_spool_sprite = False
         self.hit_flash_world_center = None
+        self.hit_white_timer = 0.0
+        self.white_fade_timer = 0.0
+        self.white_fade_duration = 0.0
 
         self._init_hud_animations()
         self._trigger_hud_enter_game()
@@ -1058,6 +1073,7 @@ class Hornet:
 
     def _start_hit_flash(self):
         """Activate the hit flash effect animation."""
+        self.hit_white_timer = 0.12
         self.hit_flash_active = True
         self.hit_flash_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
@@ -1069,6 +1085,8 @@ class Hornet:
         self.death_animation_complete = False
         self.death_finish_hold_timer = 0.0
         self.cancel_heal_channel()
+        self.white_fade_timer = 1.0
+        self.white_fade_duration = 1.0
         self.is_resting = False
         self.is_getting_off_bench = False
         self.is_mantle_clinging = False
@@ -1677,6 +1695,8 @@ class Hornet:
         self.is_healing = True
         self.heal_in_air = not self.on_ground
         self.heal_channel_timer = self.heal_channel_duration
+        self.white_fade_timer = self.heal_channel_duration
+        self.white_fade_duration = self.heal_channel_duration
         self._clear_attack_animations()
         self.hud_soul_burst_active = True
         self.hud_soul_burst_anim.set_animation("play", reset=True)
@@ -1688,6 +1708,8 @@ class Hornet:
         self.is_healing = False
         self.heal_in_air = False
         self.heal_channel_timer = 0.0
+        self.white_fade_timer = 0.0
+        self.white_fade_duration = 0.0
 
     def start_rest(self):
         """Sit on a bench, fully heal, and pause movement."""
@@ -1952,6 +1974,10 @@ class Hornet:
             self.down_attack_jump_lock_timer = max(0.0, self.down_attack_jump_lock_timer - dt)
         if self.stun_timer > 0.0:
             self.stun_timer = max(0.0, self.stun_timer - dt)
+        if self.hit_white_timer > 0.0:
+            self.hit_white_timer = max(0.0, self.hit_white_timer - dt)
+        if self.white_fade_timer > 0.0:
+            self.white_fade_timer = max(0.0, self.white_fade_timer - dt)
 
         self._sync_hud_resource_triggers()
         self._update_hud_animations(dt)
@@ -2244,6 +2270,17 @@ class Hornet:
         if self.health <= 0:
             self.health = 0
     
+    def _get_sprite_white_intensity(self):
+        """Return 0-255 white overlay intensity for the current frame."""
+        intensity = 0
+        if self.hit_white_timer > 0.0:
+            intensity = 255
+        if self.white_fade_duration > 0.0 and self.white_fade_timer > 0.0:
+            t = 1.0 - self.white_fade_timer / self.white_fade_duration
+            fade_intensity = int(255 * math.sin(math.pi * t))
+            intensity = max(intensity, fade_intensity)
+        return intensity
+
     def draw(self, screen, look_y_offset=0, screen_offset=(0, 0), camera_x=0, camera_y=0):
         """Draw Hornet on screen with the given vertical look offset."""
         draw_rect = self.rect.copy()
@@ -2253,6 +2290,10 @@ class Hornet:
         draw_hitbox_rect = None
         if self.attack_hitbox is not None:
             draw_hitbox_rect = self._build_attack_hitbox(draw_rect)
+
+        white_intensity = self._get_sprite_white_intensity()
+        def maybe_white(surf):
+            return _apply_white_overlay(surf, white_intensity) if white_intensity > 0 else surf
 
         def apply_facing_offset(offset):
             """
@@ -2276,7 +2317,7 @@ class Hornet:
                 offset_x, offset_y = apply_facing_offset(attack_offset)
                 attack_rect.x += int(offset_x)
                 attack_rect.y += int(offset_y)
-                screen.blit(attack_frame, attack_rect)
+                screen.blit(maybe_white(attack_frame), attack_rect)
                 if draw_hitbox_rect is not None and self.active_attack_effect_animation is not None and not self.pending_attack_effect_start:
                     effect_frame = self.active_attack_effect_animation.get_current_frame()
                     if effect_frame is not None:
@@ -2288,9 +2329,9 @@ class Hornet:
                         effect_rect.y += int(effect_offset_y)
                         screen.blit(effect_frame, effect_rect)
             elif self.facing_right:
-                screen.blit(self.image_flipped, draw_rect)
+                screen.blit(maybe_white(self.image_flipped), draw_rect)
             else:
-                screen.blit(self.image, draw_rect)
+                screen.blit(maybe_white(self.image), draw_rect)
         elif self.active_attack_animation is not None and self.attack_hitbox_direction == "up":
             attack_frame = self.active_attack_animation.get_current_frame()
             if attack_frame is not None:
@@ -2300,7 +2341,7 @@ class Hornet:
                 offset_x, offset_y = apply_facing_offset(attack_offset)
                 attack_rect.x += int(offset_x)
                 attack_rect.y += int(offset_y)
-                screen.blit(attack_frame, attack_rect)
+                screen.blit(maybe_white(attack_frame), attack_rect)
                 if draw_hitbox_rect is not None and self.active_attack_effect_animation is not None and not self.pending_attack_effect_start:
                     effect_frame = self.active_attack_effect_animation.get_current_frame()
                     if effect_frame is not None:
@@ -2312,9 +2353,9 @@ class Hornet:
                         effect_rect.y += int(effect_offset_y)
                         screen.blit(effect_frame, effect_rect)
             elif self.facing_right:
-                screen.blit(self.image_flipped, draw_rect)
+                screen.blit(maybe_white(self.image_flipped), draw_rect)
             else:
-                screen.blit(self.image, draw_rect)
+                screen.blit(maybe_white(self.image), draw_rect)
         elif self.active_pose_animation is not None:
             pose_frame = self.active_pose_animation.get_current_frame()
             if pose_frame is not None:
@@ -2324,7 +2365,7 @@ class Hornet:
                 offset_x, offset_y = apply_facing_offset(pose_offset)
                 pose_rect.x += int(offset_x)
                 pose_rect.y += int(offset_y)
-                screen.blit(pose_frame, pose_rect)
+                screen.blit(maybe_white(pose_frame), pose_rect)
                 if self.active_pose_effect_animation is not None:
                     effect_frame = self.active_pose_effect_animation.get_current_frame()
                     if effect_frame is not None:
@@ -2336,13 +2377,13 @@ class Hornet:
                         effect_rect.y += int(effect_offset_y)
                         screen.blit(effect_frame, effect_rect)
             elif self.facing_right:
-                screen.blit(self.image_flipped, draw_rect)
+                screen.blit(maybe_white(self.image_flipped), draw_rect)
             else:
-                screen.blit(self.image, draw_rect)
+                screen.blit(maybe_white(self.image), draw_rect)
         elif self.facing_right:
-            screen.blit(self.image_flipped, draw_rect)
+            screen.blit(maybe_white(self.image_flipped), draw_rect)
         else:
-            screen.blit(self.image, draw_rect)
+            screen.blit(maybe_white(self.image), draw_rect)
 
         if self.charged_effect_active:
             charged_frame = self.charged_effect_anim.get_current_frame()
@@ -2443,6 +2484,9 @@ class Hornet:
         self.charged_effect_active = False
         self.jump_effect_active = False
         self.hit_flash_active = False
+        self.hit_white_timer = 0.0
+        self.white_fade_timer = 0.0
+        self.white_fade_duration = 0.0
         self.rebound_effect_active = False
         self._jump_hold_timer = 0.0
         self._jump_held = False

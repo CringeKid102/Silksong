@@ -7,6 +7,15 @@ from asset_paths import resolve_image_path
 import config
 
 
+def _apply_white_overlay(surface, intensity):
+    """Return a copy of surface blended with white at the given intensity (0-255)."""
+    result = surface.copy()
+    white_layer = pygame.Surface(surface.get_size())
+    white_layer.fill((intensity, intensity, intensity))
+    result.blit(white_layer, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
+    return result
+
+
 class MossMother:
     """Flying boss enemy with pursuit, curve attacks, and stagger phases."""
 
@@ -122,6 +131,7 @@ class MossMother:
         self.knockback_velocity_x = 0.0
         self.knockback_strength = 560.0
         self.knockback_decay = 1600.0
+        self.hit_white_timer = 0.0
 
         # Constant for pathfinding
         self.cell_size = 64
@@ -869,6 +879,7 @@ class MossMother:
         if damage <= 0 or self.is_dying:
             return
 
+        self.hit_white_timer = 0.12
         self.health = max(0, self.health - damage)
 
         if self.health <= 0:
@@ -957,6 +968,8 @@ class MossMother:
         for part in self.death_parts:
             part["rect"].x -= int(camera_dx)
             part["rect"].y -= int(camera_dy)
+        if self.hit_white_timer > 0.0:
+            self.hit_white_timer = max(0.0, self.hit_white_timer - dt)
 
         if self.is_dying:
             self.velocity_x = 0.0
@@ -1145,4 +1158,5 @@ class MossMother:
                 screen.blit(part["image"], draw_rect)
             return
 
-        screen.blit(self.image, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))
+        draw_surf = _apply_white_overlay(self.image, 255) if self.hit_white_timer > 0.0 else self.image
+        screen.blit(draw_surf, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))
