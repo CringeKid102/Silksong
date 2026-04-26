@@ -11,7 +11,7 @@ This project now includes a macOS PyInstaller spec and a GitHub Actions workflow
 5. Unzip `Silksong-macOS.zip` on a Mac.
 6. Open `Silksong.app`.
 
-To stage a share folder and create a zip from Windows after downloading the artifact:
+To stage a share folder from Windows after downloading the artifact:
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File scripts/stage_macos_release.ps1 -ArtifactZipPath "path\to\Silksong-macOS.zip"
@@ -20,7 +20,12 @@ powershell -ExecutionPolicy Bypass -File scripts/stage_macos_release.ps1 -Artifa
 This creates:
 
 - `release/macos/Silksong.app`
-- `release/Silksong-macOS-share.zip`
+- `release/Silksong-macOS-share.zip` (copied from the mac-built zip to preserve app metadata)
+
+Important:
+- Do not re-zip `Silksong.app` on Windows.
+- Re-zipping a `.app` on Windows can break launch on macOS because execute metadata may be lost.
+- Always share the mac-built `Silksong-macOS.zip` (or `release/Silksong-macOS-share.zip` produced by the staging script).
 
 If macOS blocks the app the first time:
 - Right-click the app and choose **Open**, then confirm.

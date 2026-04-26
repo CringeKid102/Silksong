@@ -36,6 +36,8 @@ Silksong is a 2D action platformer prototype inspired by Hollow Knight: Silksong
 3. Open the `Silksong` folder.
 4. Run `Silksong.exe`.
 
+**Troubleshooting:** If you get "This app can't run on your pc", see [Windows Build Guide](WINDOWS_BUILD_GUIDE.md#common-compatibility-issues--solutions)
+
 ### macOS
 
 1. Open the latest release and download the macOS build asset.
@@ -58,7 +60,14 @@ pip install pygame opencv-python numpy
 python src/main.py
 ```
 
+## Building for Distribution
+
+To build Windows or macOS executables, see:
+- [Windows Build Guide](WINDOWS_BUILD_GUIDE.md)
+- [macOS Build Guide](MACOS_BUILD.md)
+
 ## Notes
 
 - This is an early prototype release (v0.1.0).
 - Save data is stored in your user data directory and persists between sessions.
+- For Windows build issues, check the [Troubleshooting section](WINDOWS_BUILD_GUIDE.md)

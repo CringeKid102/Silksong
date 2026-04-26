@@ -2399,7 +2399,7 @@ class Hornet:
                     screen.blit(hit_flash_frame, hit_flash_rect)
         
         instructions_draw_x = 10
-        instructions_draw_y = config.screen_height - 550
+        instructions_draw_y = config.VIRTUAL_HEIGHT - 550
         if self._instruction_line_surfaces is None:
             instructions_text = "Instructions:\nPress D to move right\nPress A to move left\nPress W to look up\nPress S to look down\nPress space to jump\nPress J to attack"
             self._instruction_line_surfaces = [

@@ -188,8 +188,8 @@ class Silksong:
             game_background_img_path = resolve_image_path("game_bg.png")
             self.game_background_image = self._load_and_scale_image(
                 game_background_img_path,
-                int(config.screen_width * 1.3),
-                int(config.screen_height * 1),
+                int(config.VIRTUAL_WIDTH * 1.3),
+                int(config.VIRTUAL_HEIGHT * 1),
             )
 
         if self.moss_collapse_plat_image is None:
@@ -262,6 +262,16 @@ class Silksong:
         # Create fullscreen display at actual screen size
         self.screen = pygame.display.set_mode((config.screen_width, config.screen_height), pygame.FULLSCREEN)
         
+        # Create virtual render surface at game resolution for proper scaling
+        # All rendering happens to this surface, then it's scaled and blitted to the screen
+        self.virtual_surface = pygame.Surface((config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT))
+        
+        # Calculate position to center the scaled virtual surface on the actual screen
+        scaled_width = int(config.VIRTUAL_WIDTH * config.SCALE)
+        scaled_height = int(config.VIRTUAL_HEIGHT * config.SCALE)
+        self.virtual_surface_rect = pygame.Rect(0, 0, scaled_width, scaled_height)
+        self.virtual_surface_rect.center = self.screen.get_rect().center
+        
         pygame.display.set_caption("Silksong")
         self.running = True
         self.state = "title screen"
@@ -275,27 +285,27 @@ class Silksong:
         self.cutscene_frame_timer = 0.0
         self.cutscene_next_state = None
         
-        # Load and scale title image using cache
+        # Load title images - use virtual resolution sizes (no manual scaling needed)
         title_img_path = resolve_image_path("title.png")
-        self.title_image = self._load_and_scale_image(title_img_path, int(880 * config.scale_x), int(440 * config.scale_y))
+        self.title_image = self._load_and_scale_image(title_img_path, 880, 440)
         
-        # Load and scale title element (needle)
+        # Load title element (needle)
         title_needle_path = resolve_image_path("hornet_title_screen_boneforest_0003_hornet_needle.png")
-        title_needle = self._load_and_scale_image(title_needle_path, int(186*config.scale_x), int(864*config.scale_y))
+        title_needle = self._load_and_scale_image(title_needle_path, 186, 864)
         self.title_needle = title_needle
     
-        # Load and scale title element (pin)
+        # Load title element (pin)
         title_pin_path = resolve_image_path("hornet_title_screen_boneforest_0002_lace_pin.png")
-        title_pin_scaled = self._load_and_scale_image(title_pin_path, int(94*config.scale_x), int(613*config.scale_y))
-        self.title_pin = pygame.transform.rotate(title_pin_scaled, -5)  # Rotate 15 degrees to the right (negative = clockwise)
+        title_pin_scaled = self._load_and_scale_image(title_pin_path, 94, 613)
+        self.title_pin = pygame.transform.rotate(title_pin_scaled, -5)  # Rotate 5 degrees to the right (negative = clockwise)
         
-        # Load and scale title element (boulder)
+        # Load title element (boulder)
         title_boulder_path = resolve_image_path("hornet_title_screen_boneforest_0000_bone_cliff_01.png")
-        self.title_boulder = self._load_and_scale_image(title_boulder_path, int(552*config.scale_x), int(236*config.scale_y))
+        self.title_boulder = self._load_and_scale_image(title_boulder_path, 552, 236)
 
-        # Load and scale background image using cache
+        # Load background image - use virtual resolution
         background_img_path = resolve_image_path("title_screen_bg.jpg")
-        self.background_image = self._load_and_scale_image(background_img_path, config.screen_width, config.screen_height)
+        self.background_image = self._load_and_scale_image(background_img_path, config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT)
         
         self.game_background_image = None
         self._collider_map_layers = None
@@ -324,13 +334,13 @@ class Silksong:
         
         # Initialize transition manager
         self.transition_manager = TransitionManager(
-            screen_width=config.screen_width,
-            screen_height=config.screen_height,
+            screen_width=config.VIRTUAL_WIDTH,
+            screen_height=config.VIRTUAL_HEIGHT,
             default_speed=1.5
         )
         
         # Create settings menu
-        self.settings_menu = SettingsMenu(config.screen_width, config.screen_height)
+        self.settings_menu = SettingsMenu(config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT)
         self.settings_menu.game = self  # Link settings menu to game for save/load
         self.settings_menu.transition_manager = self.transition_manager  # Link transition manager to settings
         self.settings_menu.load_progress()
@@ -339,7 +349,7 @@ class Silksong:
         self.save_file = SaveFile()
         
         # Initialize particle system for title screen effects
-        self.particle_system = ParticleSystem(config.screen_width, config.screen_height)
+        self.particle_system = ParticleSystem(config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT)
         ember_image_path = resolve_image_path("ember_particle.png")
         self.particle_system.load_ember_image(ember_image_path)
         ember_round_image_path = resolve_image_path("particle/ember_particle.png")
@@ -354,12 +364,12 @@ class Silksong:
         # Create buttons
         self.create_buttons() # Normal buttons
         self.game_back_button = Button(
-            int(config.screen_width - 90 * config.scale_x),
-            int(45 * config.scale_y),
+            int(config.VIRTUAL_WIDTH - 90),
+            int(45),
             "Back",
             config.white,
             config.title_font_path,
-            int(30 * config.scale_y),
+            int(30),
         )
         self._game_back_button_was_hovered = False
         self.game_back_click_delay = 0.2
@@ -378,12 +388,12 @@ class Silksong:
         self._bench_prompt_cache_rect = None
         self._bench_prompt_cache_bg = None
         self._bench_prompt_cache_bg_topleft = (0, 0)
-        self._brightness_overlay = pygame.Surface((config.screen_width, config.screen_height), pygame.SRCALPHA)
+        self._brightness_overlay = pygame.Surface((config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT), pygame.SRCALPHA)
         self._brightness_overlay_alpha = None
 
         # Global UI flash for non-gameplay states (title/save/settings).
         self.ui_flash_active = False
-        self.ui_flash_anchor = (config.screen_width // 2, config.screen_height // 2)
+        self.ui_flash_anchor = (config.VIRTUAL_WIDTH // 2, config.VIRTUAL_HEIGHT // 2)
         self.ui_flash_anim = Animation(
             resolve_image_path("spritesheet/HUD/flash.png"),
             frame_width=1696,
@@ -433,7 +443,7 @@ class Silksong:
         self.ground_colliders = []
         self.mossgrub_patrol_left = None
         self.mossgrub_patrol_right = None
-        self.world_ground_y = int(config.screen_height * 0.62)
+        self.world_ground_y = int(config.VIRTUAL_HEIGHT * 0.62)
 
     def _build_ground_colliders(self):
         """Build world-space ground and platform colliders for the level."""
@@ -446,13 +456,13 @@ class Silksong:
             return
 
         base_y = int(self.world_ground_y)
-        start_x = config.screen_width // 2
+        start_x = config.VIRTUAL_WIDTH // 2
 
         # Boss arena sized to exactly one camera view.
 
         
-        arena_width = int(config.screen_width - 160)
-        arena_height = int(config.screen_height - 80)
+        arena_width = int(config.VIRTUAL_WIDTH - 160)
+        arena_height = int(config.VIRTUAL_HEIGHT - 80)
         arena_floor_y = base_y - 1800
         arena_ceiling_y = arena_floor_y - arena_height
         arena_left = start_x - arena_width
@@ -460,8 +470,8 @@ class Silksong:
         wall_thickness = 30
         self.boss_arena_rect = pygame.Rect(arena_left, arena_ceiling_y, arena_width, arena_height)
         self.boss_arena_camera = (
-            int(self.boss_arena_rect.centerx - (config.screen_width / 2)),
-            int(self.boss_arena_rect.centery - (config.screen_height / 2)),
+            int(self.boss_arena_rect.centerx - (config.VIRTUAL_WIDTH / 2)),
+            int(self.boss_arena_rect.centery - (config.VIRTUAL_HEIGHT / 2)),
         )
 
         self.ground_colliders = [
@@ -492,7 +502,7 @@ class Silksong:
 
         # Keep bench anchored to world ground, not player-specific values.
         if self.player:
-            self.player.bench.rect.midbottom = (self.screen.get_width() // 2, base_y)
+            self.player.bench.rect.midbottom = (config.VIRTUAL_WIDTH // 2, base_y)
 
     def _sync_camera_lock_to_boss_arena(self, player_world_rect, dt):
         """
@@ -722,7 +732,7 @@ class Silksong:
             self.mossgrub_patrol_right = None
             return
 
-        start_x = config.screen_width // 2
+        start_x = config.VIRTUAL_WIDTH // 2
 
         if len(self.ground_colliders) > 1:
             spawn_platform = self.ground_colliders[1]
@@ -757,7 +767,7 @@ class Silksong:
         arena_id = self._next_arena_mossgrub_id
         self._next_arena_mossgrub_id += 1
 
-        arena_grub = MossGrub(0, 0, config.screen_width, config.screen_height)
+        arena_grub = MossGrub(0, 0, config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT)
         arena_grub.health = arena_grub.max_health
 
         world_bottom = int(self.boss_arena_rect.bottom)
@@ -922,15 +932,15 @@ class Silksong:
 
     def create_buttons(self):
         """Create the title screen menu buttons."""
-        # Scale positions to actual screen size
-        button_spacing = int(80 * config.scale_y)
-        shifty = int(200 * config.scale_y)
-        button_font_size = int(40 * config.scale_y)
+        # Position buttons using virtual resolution
+        button_spacing = 80
+        shifty = 200
+        button_font_size = 40
         
         self.buttons = {
-            "start": Button(config.screen_width/2, config.screen_height/2 - button_spacing+shifty, "Start Game", config.white, config.title_font_path, button_font_size),
-            "settings": Button(config.screen_width/2, config.screen_height/2+shifty, "Options", config.white, config.title_font_path, button_font_size),
-            "exit": Button(config.screen_width/2, config.screen_height/2 + button_spacing+shifty, "Exit", config.white, config.title_font_path, button_font_size),
+            "start": Button(config.VIRTUAL_WIDTH/2, config.VIRTUAL_HEIGHT/2 - button_spacing+shifty, "Start Game", config.white, config.title_font_path, button_font_size),
+            "settings": Button(config.VIRTUAL_WIDTH/2, config.VIRTUAL_HEIGHT/2+shifty, "Options", config.white, config.title_font_path, button_font_size),
+            "exit": Button(config.VIRTUAL_WIDTH/2, config.VIRTUAL_HEIGHT/2 + button_spacing+shifty, "Exit", config.white, config.title_font_path, button_font_size),
             }
 
     def update_title_screen(self, dt):
@@ -984,7 +994,7 @@ class Silksong:
     def trigger_ui_flash(self, x=None, y=None):
         """Play a one-shot UI flash animation centered at the given point."""
         if x is None or y is None:
-            self.ui_flash_anchor = (config.screen_width // 2, config.screen_height // 2)
+            self.ui_flash_anchor = (config.VIRTUAL_WIDTH // 2, config.VIRTUAL_HEIGHT // 2)
         else:
             self.ui_flash_anchor = (int(x), int(y))
         self.ui_flash_active = True
@@ -1029,7 +1039,7 @@ class Silksong:
         frame_h, frame_w = rgb_frame.shape[:2]
 
         if self.cutscene_target_size is None:
-            scale = min(config.screen_width / frame_w, config.screen_height / frame_h)
+            scale = min(config.VIRTUAL_WIDTH / frame_w, config.VIRTUAL_HEIGHT / frame_h)
             scaled_width = max(1, int(frame_w * scale))
             scaled_height = max(1, int(frame_h * scale))
             self.cutscene_target_size = (scaled_width, scaled_height)
@@ -1043,7 +1053,7 @@ class Silksong:
             (frame_w, frame_h),
             "RGB"
         ).convert()
-        self.cutscene_rect = self.cutscene_surface.get_rect(center=(config.screen_width // 2, config.screen_height // 2))
+        self.cutscene_rect = self.cutscene_surface.get_rect(center=(config.VIRTUAL_WIDTH // 2, config.VIRTUAL_HEIGHT // 2))
 
     def _read_next_cutscene_frame(self, wait_timeout=0.0):
         """
@@ -1206,7 +1216,7 @@ class Silksong:
         player_world_rect.x += int(self.camera_x)
         player_world_rect.y += int(self.camera_y)
 
-        camera_world_rect = pygame.Rect(int(self.camera_x), int(self.camera_y), config.screen_width, config.screen_height)
+        camera_world_rect = pygame.Rect(int(self.camera_x), int(self.camera_y), config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT)
         self.particle_system.update_gameplay_particles(dt, camera_world_rect, ground_colliders=self.ground_colliders)
         player_world_hitbox = player.get_world_hitbox(camera_x=self.camera_x, camera_y=self.camera_y)
         self._sync_camera_lock_to_boss_arena(player_world_rect, dt)
@@ -1529,51 +1539,51 @@ class Silksong:
     def draw_title_screen(self):
         """Render the title screen, including background, particles, title image, and buttons."""
         # Draw background
-        self.screen.blit(self.background_image, (0, 0))
+        self.virtual_surface.blit(self.background_image, (0, 0))
         
         # Draw small ember particles
-        self.particle_system.draw_particles(self.screen, size_max=6.0)
+        self.particle_system.draw_particles(self.virtual_surface, size_max=6.0)
         
         # Draw the Silksong title image
-        title_rect = self.title_image.get_rect(center=(config.screen_width/2, int(config.screen_height/2 - 200 * config.scale_y)))
-        self.screen.blit(self.title_image, title_rect)
+        title_rect = self.title_image.get_rect(center=(config.VIRTUAL_WIDTH/2, int(config.VIRTUAL_HEIGHT/2 - 200)))
+        self.virtual_surface.blit(self.title_image, title_rect)
         
         # Draw title spikes (boneforest images)
-        self.screen.blit(self.title_needle, (int(1500 * config.scale_x), int(175 * config.scale_y)))
-        self.screen.blit(self.title_pin, (int(1300 * config.scale_x), int(475 * config.scale_y)))
-        self.screen.blit(self.title_boulder, (int(1050 * config.scale_x), int(850 * config.scale_y)))
+        self.virtual_surface.blit(self.title_needle, (1500, 175))
+        self.virtual_surface.blit(self.title_pin, (1300, 475))
+        self.virtual_surface.blit(self.title_boulder, (1050, 850))
 
         # Draw large ember particles (in front of boneforest)
-        self.particle_system.draw_particles(self.screen, size_min=5.0)
+        self.particle_system.draw_particles(self.virtual_surface, size_min=5.0)
 
         # Draw buttons
         for button in self.buttons.values():
-            button.draw(self.screen)
+            button.draw(self.virtual_surface)
                 
     def draw_settings(self):
         """Render the settings overlay on top of the background."""
-        self.screen.blit(self.background_image, (0, 0))
-        self.settings_menu.draw(self.screen, self.settings_menu.font)
+        self.virtual_surface.blit(self.background_image, (0, 0))
+        self.settings_menu.draw(self.virtual_surface, self.settings_menu.font)
 
     def draw_save_file(self):
         """Render the save-file selection screen."""
-        self.screen.blit(self.background_image, (0, 0))
-        self.save_file.draw(self.screen)
+        self.virtual_surface.blit(self.background_image, (0, 0))
+        self.save_file.draw(self.virtual_surface)
     
     def draw_cutscene(self):
         """Render the active cutscene frame with a skip hint."""
-        self.screen.fill((0, 0, 0))
+        self.virtual_surface.fill((0, 0, 0))
 
         if self.cutscene_surface and self.cutscene_rect:
-            self.screen.blit(self.cutscene_surface, self.cutscene_rect)
+            self.virtual_surface.blit(self.cutscene_surface, self.cutscene_rect)
 
         if self._cutscene_skip_hint_surface is None:
-            hint_font = config.get_font(int(24 * config.scale_y))
+            hint_font = config.get_font(24)
             self._cutscene_skip_hint_surface = hint_font.render("Press any key or click to skip", True, (220, 220, 220))
             self._cutscene_skip_hint_rect = self._cutscene_skip_hint_surface.get_rect(
-                midbottom=(config.screen_width // 2, config.screen_height - int(24 * config.scale_y))
+                midbottom=(config.VIRTUAL_WIDTH // 2, config.VIRTUAL_HEIGHT - 24)
             )
-        self.screen.blit(self._cutscene_skip_hint_surface, self._cutscene_skip_hint_rect)
+        self.virtual_surface.blit(self._cutscene_skip_hint_surface, self._cutscene_skip_hint_rect)
     
     def draw_game(self):
         """Render the main game world, HUD, and all active entities."""
@@ -1585,13 +1595,13 @@ class Silksong:
         shake_x, shake_y = self.camera_shake_offset
 
         bg_width, bg_height = self.game_background_image.get_size()
-        bg_x = int((config.screen_width - bg_width) / 2 - self.camera_x * 0.18 + shake_x)
-        bg_y = int((config.screen_height - bg_height) / 2 - self.camera_y * 0.12 - look_y * 0.35 + shake_y)
+        bg_x = int((config.VIRTUAL_WIDTH - bg_width) / 2 - self.camera_x * 0.18 + shake_x)
+        bg_y = int((config.VIRTUAL_HEIGHT - bg_height) / 2 - self.camera_y * 0.12 - look_y * 0.35 + shake_y)
 
         # Draw one oversized background image and clamp it so it never tiles.
-        bg_x = min(0, max(config.screen_width - bg_width, bg_x))
-        bg_y = min(0, max(config.screen_height - bg_height, bg_y))
-        self.screen.blit(self.game_background_image, (bg_x, bg_y))
+        bg_x = min(0, max(config.VIRTUAL_WIDTH - bg_width, bg_x))
+        bg_y = min(0, max(config.VIRTUAL_HEIGHT - bg_height, bg_y))
+        self.virtual_surface.blit(self.game_background_image, (bg_x, bg_y))
         
         # Draw collider map overlay layers aligned to world space.
         for layer_data in getattr(self, "_collider_map_layers", {}).values():
@@ -1603,10 +1613,10 @@ class Silksong:
             world_x, world_y = layer_origin
             screen_x = int(world_x - self.camera_x + shake_x)
             screen_y = int(world_y - self.camera_y - look_y + shake_y)
-            self.screen.blit(layer_image, (screen_x, screen_y))
+            self.virtual_surface.blit(layer_image, (screen_x, screen_y))
 
         self.particle_system.draw_gameplay_particles(
-            self.screen,
+            self.virtual_surface,
             camera_x=self.camera_x,
             camera_y=self.camera_y,
             look_y_offset=look_y,
@@ -1616,7 +1626,7 @@ class Silksong:
         # Draw all MossGrub entities (overworld + arena spawned).
         for grub, _ in self._iter_mossgrub_entities():
             grub.draw(
-                self.screen,
+                self.virtual_surface,
                 look_y_offset=-look_y,
                 screen_offset=(shake_x, shake_y),
             )
@@ -1624,7 +1634,7 @@ class Silksong:
         # Draw Moss Mother (rect is now in screen space)
         if self.mossmother and (self.mossmother.health > 0 or self.mossmother.is_dying):
             self.mossmother.draw(
-                self.screen,
+                self.virtual_surface,
                 look_y_offset=-look_y,
                 screen_offset=(shake_x, shake_y),
             )
@@ -1635,13 +1645,13 @@ class Silksong:
                 rock_draw_rect = rock["rect"].copy()
                 rock_draw_rect.x -= int(self.camera_x - shake_x)
                 rock_draw_rect.y -= int(self.camera_y + look_y - shake_y)
-                self.screen.blit(self.moss_collapse_plat_image, rock_draw_rect)
+                self.virtual_surface.blit(self.moss_collapse_plat_image, rock_draw_rect)
 
         # Draw player (offset by look_y so player moves with the world)
         if self.player:
-            self.player.bench.draw(self.screen, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y, screen_offset=(shake_x, shake_y))
+            self.player.bench.draw(self.virtual_surface, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y, screen_offset=(shake_x, shake_y))
             self.player.draw(
-                self.screen,
+                self.virtual_surface,
                 look_y_offset=-look_y,
                 screen_offset=(shake_x, shake_y),
                 camera_x=self.camera_x,
@@ -1652,23 +1662,26 @@ class Silksong:
         if self.player:
             if self.bench_interact_text:
                 if self._bench_prompt_cache_text != self.bench_interact_text:
-                    prompt_font = config.get_font(int(32 * config.scale_y))
+                    prompt_font = config.get_font(32)
                     self._bench_prompt_cache_surface = prompt_font.render(self.bench_interact_text, True, config.white)
                     self._bench_prompt_cache_rect = self._bench_prompt_cache_surface.get_rect(
-                        center=(config.screen_width // 2, int(130 * config.scale_y))
+                        center=(config.VIRTUAL_WIDTH // 2, 130)
                     )
                     bg_rect = self._bench_prompt_cache_rect.inflate(24, 14)
                     self._bench_prompt_cache_bg = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
                     self._bench_prompt_cache_bg.fill((0, 0, 0, 150))
                     self._bench_prompt_cache_bg_topleft = bg_rect.topleft
                     self._bench_prompt_cache_text = self.bench_interact_text
-                self.screen.blit(self._bench_prompt_cache_bg, self._bench_prompt_cache_bg_topleft)
-                self.screen.blit(self._bench_prompt_cache_surface, self._bench_prompt_cache_rect)
+                self.virtual_surface.blit(self._bench_prompt_cache_bg, self._bench_prompt_cache_bg_topleft)
+                self.virtual_surface.blit(self._bench_prompt_cache_surface, self._bench_prompt_cache_rect)
 
-        self.game_back_button.draw(self.screen)
+        self.game_back_button.draw(self.virtual_surface)
     
     def draw(self):
-        """Render the current state to the screen."""
+        """Render the current state to the virtual surface, then scale and display it."""
+        # Clear virtual surface
+        self.virtual_surface.fill((0, 0, 0))
+        
         if self.cursor_image:
             pygame.mouse.set_visible(False)
         else:
@@ -1693,15 +1706,26 @@ class Silksong:
             if self._brightness_overlay_alpha != darkness_alpha:
                 self._brightness_overlay.fill((0, 0, 0, darkness_alpha))
                 self._brightness_overlay_alpha = darkness_alpha
-            self.screen.blit(self._brightness_overlay, (0, 0))
+            self.virtual_surface.blit(self._brightness_overlay, (0, 0))
 
         self._draw_ui_flash()
         
         # Draw transition overlay on top of everything
         if self.transition_manager.active:
-            self.transition_manager.draw(self.screen)
+            self.transition_manager.draw(self.virtual_surface)
 
-        # Draw custom cursor on top of all UI
+        # Scale virtual surface to fit screen and blit it
+        if config.SCALE != 1.0:
+            scaled_surface = pygame.transform.scale(
+                self.virtual_surface,
+                (int(config.VIRTUAL_WIDTH * config.SCALE), int(config.VIRTUAL_HEIGHT * config.SCALE))
+            )
+            self.screen.fill((0, 0, 0))
+            self.screen.blit(scaled_surface, self.virtual_surface_rect)
+        else:
+            self.screen.blit(self.virtual_surface, (0, 0))
+
+        # Draw custom cursor on top of all UI (on actual screen coordinates)
         if self.cursor_image:
             mouse_x, mouse_y = pygame.mouse.get_pos()
             self.screen.blit(self.cursor_image, (mouse_x - self.cursor_hotspot[0], mouse_y - self.cursor_hotspot[1]))
@@ -1810,12 +1834,12 @@ class Silksong:
 
                         # Create player when starting game
 
-                        start_x = config.screen_width // 2
+                        start_x = config.VIRTUAL_WIDTH // 2
                         base_y = int(self.world_ground_y)
-                        self.player = Hornet(start_x, base_y, config.screen_width, config.screen_height)
-                        self._register_overworld_mossgrub(MossGrub(start_x, 0, config.screen_width, config.screen_height))
+                        self.player = Hornet(start_x, base_y, config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT)
+                        self._register_overworld_mossgrub(MossGrub(start_x, 0, config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT))
                         self._clear_arena_mossgrubs()
-                        self.mossmother = MossMother((start_x + 1200), (base_y - 1800) - 200, config.screen_width, config.screen_height)
+                        self.mossmother = MossMother((start_x + 1200), (base_y - 1800) - 200, config.VIRTUAL_WIDTH, config.VIRTUAL_HEIGHT)
                         self.player.reset_position(start_x, base_y)
                         self.player.on_ground = True
                         self._build_ground_colliders()
@@ -1985,7 +2009,6 @@ class Silksong:
         self._release_cutscene_resources()
         
         pygame.quit()
- 
 
 # Run the game
 if __name__ == "__main__":

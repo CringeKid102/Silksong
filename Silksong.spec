@@ -5,16 +5,19 @@ from pathlib import Path
 project_root = Path.cwd()
 
 
+# Analysis configuration with better compatibility
 a = Analysis(
     ['src\\main.py'],
     pathex=[str(project_root / 'src')],
     binaries=[],
     datas=[(str(project_root / 'assets'), 'assets')],
-    hiddenimports=[],
+    # Explicitly include modules that might not be detected
+    hiddenimports=['pygame', 'cv2', 'numpy'],
     hookspath=[],
     hooksconfig={},
     runtime_hooks=[],
-    excludes=['pygame.docs', 'pygame.examples', 'pygame.tests', 'tkinter'],
+    # Exclude unnecessary modules to reduce size and improve compatibility
+    excludes=['pygame.docs', 'pygame.examples', 'pygame.tests', 'tkinter', 'matplotlib'],
     noarchive=False,
     optimize=0,
 )
@@ -33,7 +36,9 @@ exe = EXE(
     console=False,
     disable_windowed_traceback=False,
     argv_emulation=False,
-    target_arch=None,
+    # Build for 64-bit Windows (most compatible)
+    # If you need 32-bit, change to 'x86'
+    target_arch='x64',
     codesign_identity=None,
     entitlements_file=None,
 )
