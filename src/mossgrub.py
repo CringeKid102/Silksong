@@ -370,7 +370,7 @@ class MossGrub:
 
     def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
         """Draw the mossgrub on screen."""
-        draw_surf = _apply_white_overlay(self.image, 255) if self.hit_white_timer > 0.0 else self.image
+        draw_surf = _apply_white_overlay(self.image, int(255 * self.hit_white_timer / 0.12)) if self.hit_white_timer > 0.0 else self.image
         screen.blit(draw_surf, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))
     
     def reset_position(self, x, y):

@@ -412,7 +412,7 @@ class Hornet:
         self.attack_effect_offsets = {
             "forward_1": (0, 0),
             "forward_2": (0, 0),
-            "down": (0, 0),
+            "down": (0, 26),
             "up": (0, 0),
         }
         self.pose_animation_offsets = {
@@ -423,7 +423,7 @@ class Hornet:
             "idle": (0, 0),
             "jump": (0, 0),
             "wall_jump": (0, 0),
-            "wall_slide": (0, 0),
+            "wall_slide": (14, 0),
             "walk": (0, 0),
             "turn": (0, 0),
             "land": (0, 0),
@@ -1631,7 +1631,7 @@ class Hornet:
         if self.attack_hitbox_direction == "down":
             hitbox_width = int(self.attack_range)
             hitbox_height = max(base_height, int(self.attack_range * 0.7))
-            hitbox_top = world_rect.bottom - int(hitbox_height * 0.35)
+            hitbox_top = world_rect.bottom - int(hitbox_height * 0.35) + 20
             if self.attack_hitbox_facing_right:
                 hitbox_left = world_rect.right
             else:
@@ -1743,6 +1743,7 @@ class Hornet:
         """Restore health when the heal channel completes."""
         if self.health < self.max_health:
             self.health = min(self.health + self.heal_amount, self.max_health)
+            self._start_charged_effect()
             try:
                 self.audio_manager.play_sfx("hornet_heal")
             except Exception:
@@ -2274,10 +2275,10 @@ class Hornet:
         """Return 0-255 white overlay intensity for the current frame."""
         intensity = 0
         if self.hit_white_timer > 0.0:
-            intensity = 255
+            intensity = int(255 * self.hit_white_timer / 0.12)
         if self.white_fade_duration > 0.0 and self.white_fade_timer > 0.0:
             t = 1.0 - self.white_fade_timer / self.white_fade_duration
-            fade_intensity = int(255 * math.sin(math.pi * t))
+            fade_intensity = int(255 * t)
             intensity = max(intensity, fade_intensity)
         return intensity
 
@@ -2440,7 +2441,7 @@ class Hornet:
                     screen.blit(hit_flash_frame, hit_flash_rect)
         
         instructions_draw_x = 10
-        instructions_draw_y = config.VIRTUAL_HEIGHT - 550
+        instructions_draw_y = config.game_height - 550
         if self._instruction_line_surfaces is None:
             instructions_text = "Instructions:\nPress D to move right\nPress A to move left\nPress W to look up\nPress S to look down\nPress space to jump\nPress J to attack"
             self._instruction_line_surfaces = [

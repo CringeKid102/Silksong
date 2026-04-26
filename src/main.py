@@ -430,6 +430,7 @@ class Silksong:
         self.bench_interact_text = ""
         self._bench_interact_key_down = False
         self.respawn_position = None
+        self.pending_death_respawn_transition = False
         self.ground_colliders = []
         self.mossgrub_patrol_left = None
         self.mossgrub_patrol_right = None
@@ -1233,7 +1234,7 @@ class Silksong:
 
         if player.is_dead:
             if player.death_animation_complete:
-                self.respawn_player()
+                self._start_death_respawn_transition()
             return
 
         if self.player_contact_damage_timer > 0.0:
@@ -1407,6 +1408,28 @@ class Silksong:
             else:
                 self.mossmother.reset_position(self.mossmother.rect.centerx, self.mossmother.rect.bottom)
             self.mossmother.health = self.mossmother.max_health
+
+    def _start_death_respawn_transition(self):
+        """Fade to black, respawn Hornet at midpoint, then fade back to gameplay."""
+        if self.pending_death_respawn_transition:
+            return
+
+        started = self.transition_manager.start_transition(
+            target_state=None,
+            transition_type=TransitionType.FADE_COLOR,
+            speed=1.6,
+            state_change_callback=lambda _target_state: self.respawn_player(),
+            completion_callback=self._finish_death_respawn_transition,
+            easing="ease_in_out",
+            midpoint_hold=0.12,
+            color=(0, 0, 0),
+        )
+        if started:
+            self.pending_death_respawn_transition = True
+
+    def _finish_death_respawn_transition(self):
+        """Clear the in-progress death/respawn transition flag."""
+        self.pending_death_respawn_transition = False
 
     def respawn_player(self):
         """Respawn Hornet at the last bench rest position and reset the encounter."""
@@ -1985,7 +2008,6 @@ class Silksong:
         self._release_cutscene_resources()
         
         pygame.quit()
- 
 
 # Run the game
 if __name__ == "__main__":

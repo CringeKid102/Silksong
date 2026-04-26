@@ -1158,5 +1158,5 @@ class MossMother:
                 screen.blit(part["image"], draw_rect)
             return
 
-        draw_surf = _apply_white_overlay(self.image, 255) if self.hit_white_timer > 0.0 else self.image
+        draw_surf = _apply_white_overlay(self.image, int(255 * self.hit_white_timer / 0.12)) if self.hit_white_timer > 0.0 else self.image
         screen.blit(draw_surf, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))

@@ -45,6 +45,8 @@ class TransitionManager:
         self.target_state = None
         self.complete_callback = None
         self.state_change_callback = None
+        self.midpoint_hold_duration = 0.0
+        self.midpoint_hold_timer = 0.0
         
         # Content properties
         self.transition_type = TransitionType.FADE_COLOR
@@ -89,6 +91,8 @@ class TransitionManager:
         self.slide_offset = 0.0
         self.circle_radius = 0.0
         self._overlay_cache = None  # Clear cache on new transition
+        self.midpoint_hold_duration = max(0.0, float(kwargs.get("midpoint_hold", 0.0)))
+        self.midpoint_hold_timer = self.midpoint_hold_duration
 
         # Set easing function
         easing_map = {
@@ -184,19 +188,31 @@ class TransitionManager:
 
         # Speed is now in seconds for full transition (e.g., 2.0 = 2 seconds)
         progress_delta = (10 / self.speed) * dt
-        self.progress += progress_delta
 
-        if self.phase == 'in':
-            if self.progress >= 0.5:
+        if self.phase == 'hold':
+            self.midpoint_hold_timer = max(0.0, self.midpoint_hold_timer - dt)
+            self.progress = 0.5
+            if self.midpoint_hold_timer <= 0.0:
                 self.phase = 'out'
-                result['state_changed'] = True
-                if self.state_change_callback:
-                    self.state_change_callback(self.target_state)
+        else:
+            self.progress += progress_delta
 
-        elif self.phase == 'out':
-            if self.progress >= 1.0:
-                self._complete_transition()
-                result['completed'] = True
+            if self.phase == 'in':
+                if self.progress >= 0.5:
+                    result['state_changed'] = True
+                    if self.state_change_callback:
+                        self.state_change_callback(self.target_state)
+
+                    if self.midpoint_hold_duration > 0.0:
+                        self.phase = 'hold'
+                        self.progress = 0.5
+                    else:
+                        self.phase = 'out'
+
+            elif self.phase == 'out':
+                if self.progress >= 1.0:
+                    self._complete_transition()
+                    result['completed'] = True
         
         # Update any dynamic content (e.g., video frames)
         self._update_content()
