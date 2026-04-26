@@ -1,6 +1,5 @@
 import pygame
 import os
-import math
 
 from runtime_paths import assets_path
 
@@ -9,35 +8,16 @@ pygame.init()
 
 # Constants
 
-# ============================================================================
-# RESOLUTION SYSTEM
-# ============================================================================
-# The game operates in virtual space at a fixed resolution (game_width x game_height).
-# All game logic, assets, positions, and colliders are defined in this virtual space.
-# The virtual surface is then scaled to fit the actual screen resolution.
-# This ensures all elements scale uniformly, fixing resolution-dependent issues.
-# ============================================================================
+# Game resolution
+game_width, game_height = 1920, 1080
 
-# Virtual game resolution - all game logic and assets are designed for this
-VIRTUAL_WIDTH = 1920
-VIRTUAL_HEIGHT = 1080
-
-# Actual screen dimensions - determined at runtime (fullscreen)
+# Actual screen dimensions - Fullscreen (Github Copilot)
 info = pygame.display.Info()
-SCREEN_WIDTH = info.current_w
-SCREEN_HEIGHT = info.current_h
+screen_width, screen_height = info.current_w, info.current_h
 
-# Calculate uniform scale factor to maintain aspect ratio
-# Use the minimum scale to ensure the virtual surface fits on screen
-_scale_x = SCREEN_WIDTH / VIRTUAL_WIDTH
-_scale_y = SCREEN_HEIGHT / VIRTUAL_HEIGHT
-SCALE = min(_scale_x, _scale_y)
-
-# For backward compatibility with existing code
-game_width, game_height = VIRTUAL_WIDTH, VIRTUAL_HEIGHT
-screen_width, screen_height = SCREEN_WIDTH, SCREEN_HEIGHT
-scale_x = SCALE
-scale_y = SCALE
+# Calculate scale for dynamic screening
+scale_x = screen_width / game_width
+scale_y = screen_height / game_height
 
 # Character sizing multipliers
 HORNET_SCALE_MULTIPLIER = 1.3

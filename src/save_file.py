@@ -40,13 +40,13 @@ class SaveSlotButton:
 
             if os.path.exists(slider_path):
                 self.hover_pointer = pygame.image.load(slider_path).convert_alpha()
-                pointer_size = 70
+                pointer_size = int(70 * config.scale_x)
                 self.hover_pointer = pygame.transform.scale(self.hover_pointer, (pointer_size, pointer_size))
                 break
         
         # Font for "New File" text
-        self.font = config.get_font(36)
-        self.title_font = config.get_title_font(28)
+        self.font = config.get_font(int(36 * config.scale_y))
+        self.title_font = config.get_title_font(int(28 * config.scale_y))
         
         # State
         self.is_hovering = False
@@ -252,19 +252,19 @@ class SaveFile:
         self.refresh_slot_status()
         
         # Pre-load font for status text using config's cached fonts
-        self.status_font = config.get_font(20)
+        self.status_font = config.get_font(int(20 * config.scale_y))
         
         # Load background image for existing save files
         played_file_path = resolve_image_path("mosscave_area_art.png")
-        self.played_file = self._load_and_scale_image(played_file_path, 353, 640)
+        self.played_file = self._load_and_scale_image(played_file_path, int(353*config.scale_x), int(640*config.scale_y))
         
 
-        # Create custom save slot buttons - use virtual resolution dimensions
-        slot_width = 353
-        slot_height = 640
-        slot_spacing = 400
-        start_x = int(config.VIRTUAL_WIDTH / 2 - 2 * slot_spacing + 14)  # Centered, with border offset
-        start_y = 200
+        # Create custom save slot buttons
+        slot_width = int(353 * config.scale_x)
+        slot_height = int(640 * config.scale_y)
+        slot_spacing = int(400 * config.scale_x)
+        start_x = int(config.screen_width / 2 - 2 * slot_spacing + 14)  # Need to figure out how to scale the 14 pixel offset for the border
+        start_y = int(200 * config.scale_y)
         
         self.save_slot_buttons = {}
         self.trash_buttons = {}
@@ -279,16 +279,16 @@ class SaveFile:
             )
             
             # Trash button at bottom of save slot
-            trash_size = 60
+            trash_size = int(60 * config.scale_x)
             trash_x = x + slot_width // 2
-            trash_y = start_y + slot_height + 40
+            trash_y = start_y + slot_height + int(40 * config.scale_y)
             self.trash_buttons[i] = TrashButton(trash_x, trash_y, trash_size, trash_size)
         
         # Back button
-        button_font_size = 40
+        button_font_size = int(40 * config.scale_y)
         self.close_button = Button(
-            config.VIRTUAL_WIDTH/2, 
-            config.VIRTUAL_HEIGHT - 100, 
+            config.screen_width/2, 
+            config.screen_height - 100, 
             "Back", 
             config.white, 
             config.title_font_path, 
@@ -297,7 +297,7 @@ class SaveFile:
 
         # Pre-load save file border image
         borders_path = resolve_image_path("save_file_border.png")
-        self.borders = self._load_and_scale_image(borders_path, 377, 669)
+        self.borders = self._load_and_scale_image(borders_path, int(377*config.scale_x), int(669*config.scale_y))
 
     def _load_and_scale_image(self, image_path, width, height):
         """Load an image and scale it to the given dimensions."""
@@ -485,7 +485,7 @@ class SaveFile:
         """Draw the save file selection screen with slot buttons and borders."""        
         # Draw title
         title_text = config.super_title_font.render("Select Save Slot", True, config.white)
-        title_rect = title_text.get_rect(center=(config.VIRTUAL_WIDTH/2, 100))
+        title_rect = title_text.get_rect(center=(config.screen_width/2, int(100 * config.scale_y)))
         screen.blit(title_text, title_rect) 
         
         # Draw save slot buttons with status and trash buttons
@@ -505,15 +505,15 @@ class SaveFile:
                     True,
                     config.white
                 )
-                info_rect = info_text.get_rect(midbottom=(button.rect.centerx, button.rect.bottom - 20))
+                info_rect = info_text.get_rect(midbottom=(button.rect.centerx, button.rect.bottom - int(20 * config.scale_y)))
                 screen.blit(info_text, info_rect)
             # Draw trash button
             self.trash_buttons[slot_num].draw(screen)
 
         # Draw borders over each save slot
-        slot_spacing = 400
-        start_x = int(config.VIRTUAL_WIDTH / 2 - 2 * slot_spacing)
-        start_y = 187
+        slot_spacing = int(400 * config.scale_x)
+        start_x = int(config.screen_width / 2 - 2 * slot_spacing)
+        start_y = int(187 * config.scale_y)
         for i in range(4):
             screen.blit(self.borders, (start_x + i * slot_spacing, start_y))
         
