@@ -1,7 +1,8 @@
 import pygame
 import os
 import json
-from typing import Dict, Optional
+import random
+from typing import Dict, List, Optional
 
 from runtime_paths import assets_path, user_data_file
 
@@ -27,6 +28,7 @@ class AudioManager:
         self._audio_available = True
         try:
             pygame.mixer.init(frequency=44100, size=-16, channels=2, buffer=512)
+            pygame.mixer.set_num_channels(16)
         except Exception as e:
             self._audio_available = False
             print(f"Warning: Audio disabled ({e})")
@@ -38,10 +40,12 @@ class AudioManager:
         self.music_volume = 0.5
         self.sfx_volume = 0.8
 
-        # Audio channels
-        self.sfx_channels = [pygame.mixer.Channel(i) for i in range(8)] if self._audio_available else []
+        # Audio channels (0-13 for sfx, 14 for atmosphere)
+        self.sfx_channels = [pygame.mixer.Channel(i) for i in range(14)] if self._audio_available else []
+        self._atmos_channel = pygame.mixer.Channel(14) if self._audio_available else None
         self.current_channel = 0
         self.sfx_sounds = {}
+        self._current_music_name = None
 
         self.settings_file = user_data_file("game_progress.json")
         self.load_settings()
@@ -84,12 +88,10 @@ class AudioManager:
             print(f"Error saving audio settings: {e}")
 
     def load_sounds(self, sounds):
-        """Load sound effects from the sfx directory by name."""
-        sfx_dir = os.path.join(self.audio_dir, "sfx")
-        try:
-            os.makedirs(sfx_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Error creating sfx directory: {e}")
+        """Load sound effects from the audio directory by name."""
+        sfx_dir = self.audio_dir
+        if not os.path.exists(sfx_dir):
+            print(f"Warning: Audio directory not found: {sfx_dir}")
             return
 
         for sound_name, sound_file in sounds.items():
@@ -131,17 +133,23 @@ class AudioManager:
         volume = (volume_override or 1.0) * self.sfx_volume * self.master_volume
         channel.set_volume(volume)
         channel.play(self.sfx_sounds[sound_name])
-    
-    def play_music(self, music_name, loop=True, fade_in=0):
-        """Play background music from the music directory."""
+
+    def stop_sfx(self, sound_name):
+        """Stop all channels currently playing the named sound effect."""
         if not self._audio_available:
             return
-        music_dir = os.path.join(self.audio_dir, "music")
-        try:
-            os.makedirs(music_dir, exist_ok=True)
-        except Exception as e:
-            print(f"Error creating music directory: {e}")
+        sound = self.sfx_sounds.get(sound_name)
+        if sound:
+            sound.stop()
+
+    def play_music(self, music_name, loop=True, fade_in=0):
+        """Play background music from the audio directory."""
+        if not self._audio_available:
             return
+        if music_name == self._current_music_name and self.is_music_playing():
+            return
+        self._current_music_name = music_name
+        music_dir = self.audio_dir
 
         music_loaded = False
         for ext in ['.mp3', '.ogg', '.wav']:
@@ -170,10 +178,34 @@ class AudioManager:
         """Stop background music, optionally with a fade out."""
         if not self._audio_available:
             return
+        self._current_music_name = None
         if fade_out > 0:
             pygame.mixer.music.fadeout(int(fade_out * 1000))
         else:
             pygame.mixer.music.stop()
+
+    def play_atmosphere(self, sound_name, volume_override=None):
+        """Play a looping atmosphere sound on the dedicated atmosphere channel."""
+        if not self._audio_available or self._atmos_channel is None:
+            return
+        if sound_name not in self.sfx_sounds:
+            return
+        volume = (volume_override if volume_override is not None else 0.6) * self.sfx_volume * self.master_volume
+        self._atmos_channel.set_volume(volume)
+        self._atmos_channel.play(self.sfx_sounds[sound_name], loops=-1)
+
+    def stop_atmosphere(self):
+        """Stop the looping atmosphere channel."""
+        if not self._audio_available or self._atmos_channel is None:
+            return
+        self._atmos_channel.stop()
+
+    def play_sfx_random(self, sound_names: List[str], volume_override=None):
+        """Play a random sound from the provided list of sound-name keys."""
+        available = [name for name in sound_names if name in self.sfx_sounds]
+        if not available:
+            return
+        self.play_sfx(random.choice(available), volume_override=volume_override)
     
     def set_master_volume(self, volume: float):
         """Set the master volume, clamped to [0, 1], and save settings."""
@@ -202,6 +234,8 @@ class AudioManager:
         channel_volume = self.sfx_volume * self.master_volume
         for channel in self.sfx_channels:
             channel.set_volume(channel_volume)
+        if self._atmos_channel is not None:
+            self._atmos_channel.set_volume(self.sfx_volume * self.master_volume * 0.6)
     
     def get_volumes(self) -> Dict[str, float]:
         """Return a dict with current master, music, and sfx volume levels."""

@@ -8,16 +8,23 @@ pygame.init()
 
 # Constants
 
-# Game resolution
+# Game resolution — fixed at 1920x1080 for all machines
 game_width, game_height = 1920, 1080
+screen_width, screen_height = game_width, game_height
 
-# Actual screen dimensions - Fullscreen (Github Copilot)
-info = pygame.display.Info()
-screen_width, screen_height = info.current_w, info.current_h
+# Camera viewport — the visible window into the game world during gameplay.
+# Arena size is 1380×760; viewport is slightly bigger (40px padding each side).
+# HUD elements (health, silk, instructions) draw at fixed screen positions, unaffected.
+_arena_w = 1380
+_arena_h = 760
+camera_viewport_width  = _arena_w + 80   # 1460  (40px padding each side)
+camera_viewport_height = _arena_h + 60   # 820   (30px padding each side)
+camera_viewport_x = (game_width  - camera_viewport_width)  // 2   # 230
+camera_viewport_y = (game_height - camera_viewport_height) // 2   # 130
 
-# Calculate scale for dynamic screening
-scale_x = screen_width / game_width
-scale_y = screen_height / game_height
+# No dynamic scaling: all layout values are authored at 1920x1080
+scale_x = 1.0
+scale_y = 1.0
 
 # Character sizing multipliers
 HORNET_SCALE_MULTIPLIER = 1.3
@@ -33,7 +40,7 @@ _font_cache = {}
 def get_font(size=None):
     """Return the regular font at the given size, cached for reuse."""
     if size is None:
-        size = int(32 * scale_y)
+        size = 32
     key = ('font', size)
     if key not in _font_cache:
         _font_cache[key] = pygame.font.Font(font_path, size)
@@ -42,7 +49,7 @@ def get_font(size=None):
 def get_title_font(size=None):
     """Return the title font at the given size, cached for reuse."""
     if size is None:
-        size = int(48 * scale_y)
+        size = 48
     key = ('title_font', size)
     if key not in _font_cache:
         _font_cache[key] = pygame.font.Font(title_font_path, size)
@@ -51,7 +58,7 @@ def get_title_font(size=None):
 def get_super_title_font(size=None):
     """Return the large title font at the given size, cached for reuse."""
     if size is None:
-        size = int(72 * scale_y)
+        size = 72
     key = ('super_title_font', size)
     if key not in _font_cache:
         _font_cache[key] = pygame.font.Font(title_font_path, size)
@@ -90,7 +97,7 @@ collider_map_overlay = {
     "layers": {
         "upper": {
             "path": "collider_maps/collider_map_upper.png",
-            "offset": (-135, -140),
+            "offset": (-140, -135),
             "scale": 0.625,
             "world_origin_override": None,
         },

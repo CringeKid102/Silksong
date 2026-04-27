@@ -11,7 +11,7 @@ class Bench:
         image_path = resolve_image_path("bench.png")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
-        scale_factor = 0.5 * config.scale_y
+        scale_factor = 0.5
         scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
         self.image = pygame.transform.scale(self.image, scaled_size)
         

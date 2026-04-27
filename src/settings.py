@@ -24,11 +24,11 @@ class SettingsMenu:
         self.current_menu = "options"  # options, game, audio, video, keyboard
         
         # Use config's cached fonts instead of loading new ones
-        self.font = config.get_font(int(40 * config.scale_y))
-        self.title_font = config.get_title_font(int(48 * config.scale_y))
-        self.button_spacing = int(80 * config.scale_y)
-        self.button_font_size = int(40 * config.scale_y)
-        self.shifty = int(80 * config.scale_y)
+        self.font = config.get_font(40)
+        self.title_font = config.get_title_font(48)
+        self.button_spacing = 80
+        self.button_font_size = 40
+        self.shifty = 80
 
         # Panel
         panel_width, panel_height = 500, 400
@@ -78,7 +78,7 @@ class SettingsMenu:
             'video': Button(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing * 2, "Video", config.white, config.title_font_path, self.button_font_size),
             'keyboard': Button(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing * 3, "Keyboard", config.white, config.title_font_path, self.button_font_size),
         }
-        self.close_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.close_button = Button(self.panel_x + 250, config.screen_height - 70,
                                              "Back", config.white, config.title_font_path, self.button_font_size)
 
     def _init_game_menu(self):
@@ -87,7 +87,7 @@ class SettingsMenu:
             'language': Button(self.panel_x + 250, self.panel_y + self.shifty + 25, "Language: English", config.white, config.title_font_path, self.button_font_size),
             'camera_shake': Button(self.panel_x + 250, self.panel_y + self.shifty + self.button_spacing + 25, "Camera Shake: ON", config.white, config.title_font_path, self.button_font_size),
         }
-        self.game_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.game_back_button = Button(self.panel_x + 250, config.screen_height - 70,
                                                  "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _init_audio_menu(self):
@@ -103,7 +103,7 @@ class SettingsMenu:
             'music': Slider(slider_x, self.panel_y + 240, 350, 10, 0.0, 1.0,
                            volumes['music'], "Music Volume", self.audio_manager.set_music_volume),
         }
-        self.audio_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.audio_back_button = Button(self.panel_x + 250, config.screen_height - 70,
                                                   "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _init_video_menu(self):
@@ -114,13 +114,13 @@ class SettingsMenu:
             'brightness': Slider(slider_x, self.panel_y + 80, 350, 10, 0.0, 1.0,
                                  self.settings_data['brightness'], "Brightness", self._set_brightness),
         }
-        self.video_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.video_back_button = Button(self.panel_x + 250, config.screen_height - 70,
                                                   "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _init_keyboard_menu(self):
         """Create the keyboard settings sub-menu with a back button."""
         
-        self.keyboard_back_button = Button(self.panel_x + 250, config.screen_height - int(70 * config.scale_y),
+        self.keyboard_back_button = Button(self.panel_x + 250, config.screen_height - 70,
                                                        "Back", config.white, config.title_font_path, self.button_font_size)
     
     def _set_brightness(self, value):

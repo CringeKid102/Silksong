@@ -7,10 +7,16 @@ from asset_paths import resolve_image_path
 import config
 
 
+_white_overlay_cache: dict = {}
+
 def _apply_white_overlay(surface, intensity):
     """Return a copy of surface blended with white at the given intensity (0-255)."""
     result = surface.copy()
-    white_layer = pygame.Surface(surface.get_size())
+    size = surface.get_size()
+    white_layer = _white_overlay_cache.get(size)
+    if white_layer is None:
+        white_layer = pygame.Surface(size)
+        _white_overlay_cache[size] = white_layer
     white_layer.fill((intensity, intensity, intensity))
     result.blit(white_layer, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
     return result
@@ -25,13 +31,15 @@ class Hornet:
         image_path = resolve_image_path("hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
         source_width, source_height = self.image.get_size()
-        scale_factor = 0.3 * config.scale_y * config.HORNET_SCALE_MULTIPLIER
+        scale_factor = 0.3 * config.HORNET_SCALE_MULTIPLIER
         scaled_size = (int(source_width * scale_factor), int(source_height * scale_factor))
         self.image = pygame.transform.scale(self.image, scaled_size)
         self.image_flipped = pygame.transform.flip(self.image, True, False)
         
         self.rect = self.image.get_rect()
         self.rect.midbottom = (x, y)
+        # Narrower foot rect width used only for ground landing detection.
+        self._ground_foot_width = max(4, self.rect.width - 200)
         
         # Movement attributes
         self.velocity_x = 0
@@ -98,6 +106,9 @@ class Hornet:
         
         # Audio manager instance
         self.audio_manager = AudioManager()
+        self._footstep_timer = 0.0
+        self._footstep_interval = 0.28
+        self._wall_land_played = False  # guard: play wall_land only once per wall contact
 
         # Initialize bench (main.py anchors it to world ground collider)
         self.bench = Bench(screen_width // 2, y)
@@ -179,7 +190,7 @@ class Hornet:
         self.was_on_ground = False
         self.landed_this_frame = False
         self.jump_pose_active = False
-        anim_scale = 0.5 * config.scale_y * config.HORNET_SCALE_MULTIPLIER
+        anim_scale = 0.5 * config.HORNET_SCALE_MULTIPLIER
         self.attack_1_anim = Animation(
             resolve_image_path("spritesheet/hornet/hornet_attack_1.png"),
             frame_width=256,
@@ -485,17 +496,18 @@ class Hornet:
             "health": (40, 10),
             "silk": (10, 10),
         }
+        # Offsets are scaled by 1.3/0.7 relative to the original 0.7-scale values.
         self.hud_animation_offsets = {
             "flash": (0, 0),
-            "frame_appear": (70, 30),
-            "bind_orb": (-6, 38),
-            "health_appear": (50, 35),
-            "health_break": (50, 35),
-            "silk_down": (20, 90),
-            "silk_up": (20, 90),
+            "frame_appear": (130, 56),
+            "bind_orb": (-11, 71),
+            "health_appear": (143, 65),
+            "health_break": (143, 65),
+            "silk_down": (37, 167),
+            "silk_up": (37, 167),
             "soul_burst": (0, 0),
-            "spool_appear": (-52, 90),
-            "spool_sprite": (-52, 90),
+            "spool_appear": (-97, 167),
+            "spool_sprite": (-97, 167),
             "silk_content": (0, 0),
         }
 
@@ -669,7 +681,7 @@ class Hornet:
 
     def _init_hud_animations(self):
         """Load HUD animation assets for health and silk UI."""
-        hud_scale = 0.7 * max(1.0, config.scale_y)
+        hud_scale = 1.3
 
         self.hud_flash_anim = Animation(
             resolve_image_path("spritesheet/HUD/flash.png"),
@@ -1102,6 +1114,10 @@ class Hornet:
             self.audio_manager.play_sfx("hornet_death")
         except Exception:
             pass
+        try:
+            self.audio_manager.play_sfx("hornet_death_scream")
+        except Exception:
+            pass
 
     def _start_get_off_bench(self, move_left, move_right):
         """
@@ -1140,6 +1156,10 @@ class Hornet:
         self.attack_recoil_velocity_x = 0.0
         self.jump_pose_active = False
         self.on_ground = True
+        try:
+            self.audio_manager.play_sfx("hornet_wake_up")
+        except Exception:
+            pass
 
     def _start_mantle_cling(self, ledge_x, ledge_y, ledge_direction, cling_world_x=None, cling_world_bottom=None):
         """
@@ -1166,6 +1186,10 @@ class Hornet:
         self.knockback_velocity_x = 0
         self.attack_recoil_velocity_x = 0
         self.on_ground = False
+        try:
+            self.audio_manager.play_sfx("hornet_mantle_grab")
+        except Exception:
+            pass
         self.facing_right = ledge_direction > 0
         self._mantle_cling_min_timer = 0.08
 
@@ -1493,7 +1517,7 @@ class Hornet:
                 self.facing_right = True
                 self._start_jump_effect()
                 try:
-                    self.audio_manager.play_sfx("hornet_jump")
+                    self.audio_manager.play_sfx("hornet_wall_jump")
                 except Exception:
                     pass
             elif self.touching_wall_right:
@@ -1506,7 +1530,7 @@ class Hornet:
                 self.facing_right = False
                 self._start_jump_effect()
                 try:
-                    self.audio_manager.play_sfx("hornet_jump")
+                    self.audio_manager.play_sfx("hornet_wall_jump")
                 except Exception:
                     pass
 
@@ -1561,9 +1585,16 @@ class Hornet:
                 self.is_down_attacking = False
                 self._start_forward_attack_animation()
             try:
-                self.audio_manager.play_sfx("hornet_attack")
+                self.audio_manager.play_sfx("hornet_sword")
             except Exception:
                 pass  # Skip if sound doesn't exist
+            try:
+                self.audio_manager.play_sfx_random([
+                    "hornet_attack_scream_1", "hornet_attack_scream_2",
+                    "hornet_attack_scream_3", "hornet_attack_scream_4",
+                ])
+            except Exception:
+                pass
         self._attack_key_down = attack_pressed
 
         # Dash
@@ -1679,7 +1710,18 @@ class Hornet:
         """Add silk, clamped to the maximum."""
         if amount <= 0:
             return
+        prev_silk = self.silk
         self.silk = min(self.max_silk, self.silk + amount)
+        if self.silk > prev_silk:
+            try:
+                self.audio_manager.play_sfx("hornet_silkcharge")
+            except Exception:
+                pass
+            if self.silk >= self.max_silk:
+                try:
+                    self.audio_manager.play_sfx("hornet_bind_ready")
+                except Exception:
+                    pass
         self._sync_hud_resource_triggers()
 
     def start_heal_channel(self):
@@ -1701,10 +1743,23 @@ class Hornet:
         self.hud_soul_burst_active = True
         self.hud_soul_burst_anim.set_animation("play", reset=True)
         self._sync_hud_resource_triggers()
+        try:
+            self.audio_manager.play_sfx("hornet_bind_1")
+        except Exception:
+            pass
+        try:
+            self.audio_manager.play_sfx("hornet_bind_scream_1")
+        except Exception:
+            pass
         return True
 
     def cancel_heal_channel(self):
         """Cancel the current heal channel if active."""
+        if self.is_healing:
+            try:
+                self.audio_manager.play_sfx("hornet_bind_break")
+            except Exception:
+                pass
         self.is_healing = False
         self.heal_in_air = False
         self.heal_channel_timer = 0.0
@@ -1721,6 +1776,10 @@ class Hornet:
         self.health = self.max_health
         self.velocity_x = 0
         self.velocity_y = 0
+        try:
+            self.audio_manager.play_sfx("bench_rest")
+        except Exception:
+            pass
 
     def start_stun(self, duration=2.0):
         """Temporarily prevent Hornet from moving or attacking."""
@@ -1745,9 +1804,18 @@ class Hornet:
             self.health = min(self.health + self.heal_amount, self.max_health)
             self._start_charged_effect()
             try:
-                self.audio_manager.play_sfx("hornet_heal")
+                self.audio_manager.stop_sfx("hornet_bind_1")
+                self.audio_manager.stop_sfx("hornet_bind_scream_1")
             except Exception:
-                pass  # Skip if sound doesn't exist
+                pass
+            try:
+                self.audio_manager.play_sfx("hornet_bind_2")
+            except Exception:
+                pass
+            try:
+                self.audio_manager.play_sfx("hornet_bind_scream_2")
+            except Exception:
+                pass
             self.hud_health_appear_active = True
             self.hud_health_appear_anim.set_animation("play", reset=True)
             self._sync_hud_resource_triggers()
@@ -1761,9 +1829,10 @@ class Hornet:
             x (int): Base x of the health HUD.
             y (int): Base y of the health HUD.
         """
-        icon_w = 16
-        icon_h = 16
-        pad = 14
+        # icon_w/h and pad scaled by 1.3/0.7 from original 16/16/14.
+        icon_w = 30
+        icon_h = 30
+        pad = 26
 
         for i in range(self.health, self.max_health):
             slot_x = x + i * (icon_w + pad)
@@ -1810,9 +1879,10 @@ class Hornet:
             x (int): Base x of the silk HUD.
             y (int): Base y of the silk HUD.
         """
-        icon_w = 16
-        icon_h = 16
-        pad = -8
+        # icon_w/h and pad scaled by 1.3/0.7 from original 16/16/-8.
+        icon_w = 30
+        icon_h = 30
+        pad = -15
         content_offset_x, content_offset_y = self.hud_animation_offsets.get("silk_content", (0, 0))
 
         silk_center_x = x + ((self.max_silk * icon_w) + ((self.max_silk - 1) * pad)) // 2
@@ -1830,8 +1900,9 @@ class Hornet:
         if self.hud_silk_down_active:
             self._draw_hud_animation(screen, self.hud_silk_down_anim, silk_content_center_x, silk_content_center_y, "silk_down")
 
-        spool_center_x = x + 110 + content_offset_x
-        spool_center_y = y + 8 + content_offset_y
+        # spool offsets scaled by 1.3/0.7 from original 110/8.
+        spool_center_x = x + 204 + content_offset_x
+        spool_center_y = y + 15 + content_offset_y
 
         if self.hud_spool_appear_active:
             self._draw_hud_animation(screen, self.hud_spool_appear_anim, spool_center_x, spool_center_y, "spool_appear")
@@ -1912,10 +1983,10 @@ class Hornet:
 
         if knockback_direction < 0:
             self.knockback_velocity_x = -self.knockback_strength * 1.6
-            self.rect.x -= int(28 * config.scale_x)
+            self.rect.x -= 28
         elif knockback_direction > 0:
             self.knockback_velocity_x = self.knockback_strength * 1.6
-            self.rect.x += int(28 * config.scale_x)
+            self.rect.x += 28
 
     def rebound_from_down_attack(self, enemy_rect=None, camera_y=0):
         """Bounce Hornet upward after a successful down-attack hit."""
@@ -2092,11 +2163,14 @@ class Hornet:
                             self.velocity_y = 0
                             break
 
-                # Landing collision
+                # Landing collision — use a narrower foot rect so Hornet does not
+                # appear to float when standing at the edge of a platform.
                 landing_top = None
                 if self.velocity_y >= 0:
+                    foot_left = world_rect.centerx - self._ground_foot_width // 2
+                    foot_right = foot_left + self._ground_foot_width
                     for ground_rect in collision_rects:
-                        if world_rect.right <= ground_rect.left or world_rect.left >= ground_rect.right:
+                        if foot_right <= ground_rect.left or foot_left >= ground_rect.right:
                             continue
                         if previous_bottom <= ground_rect.top and world_rect.bottom >= ground_rect.top:
                             if landing_top is None or ground_rect.top < landing_top:
@@ -2178,6 +2252,36 @@ class Hornet:
 
                 resolved_world_rect = world_rect.copy()
 
+            # Kill horizontal velocity/knockback into any wall that was resolved this frame.
+            # This prevents tunnelling through thin walls after a wall jump in a corner.
+            if self.touching_wall_right:
+                self.knockback_velocity_x = min(0.0, self.knockback_velocity_x)
+                self.attack_recoil_velocity_x = min(0.0, self.attack_recoil_velocity_x)
+                self.velocity_x = min(0.0, self.velocity_x)
+            if self.touching_wall_left:
+                self.knockback_velocity_x = max(0.0, self.knockback_velocity_x)
+                self.attack_recoil_velocity_x = max(0.0, self.attack_recoil_velocity_x)
+                self.velocity_x = max(0.0, self.velocity_x)
+
+            # Recovery snap: if the wall correction pushed Hornet horizontally
+            # onto a floor she slipped past (landing check runs before wall
+            # correction), snap her to the surface so she doesn't clip through.
+            if resolved_world_rect is not None and self.velocity_y >= 0:
+                snap_foot_left = resolved_world_rect.centerx - self._ground_foot_width // 2
+                snap_foot_right = snap_foot_left + self._ground_foot_width
+                for ground_rect in collision_rects:
+                    if snap_foot_right <= ground_rect.left or snap_foot_left >= ground_rect.right:
+                        continue
+                    if (resolved_world_rect.bottom > ground_rect.top
+                            and resolved_world_rect.top < ground_rect.top):
+                        resolved_world_rect.bottom = ground_rect.top
+                        self.rect.y = int(resolved_world_rect.y - camera_y)
+                        self.velocity_y = 0
+                        self.on_ground = True
+                        if not self.was_on_ground:
+                            self.landed_this_frame = True
+                        break
+
             # Handle wall-slide velocity for current-frame wall contact
             _on_wall_now = (
                 not self.on_ground
@@ -2244,6 +2348,45 @@ class Hornet:
                             cling_world_bottom=cling_world_bottom,
                         )
                         break
+
+        # --- Audio: landing, wall-land, footsteps ---
+        if self.landed_this_frame and not self.is_dead:
+            try:
+                self.audio_manager.play_sfx("hornet_land_moss")
+            except Exception:
+                pass
+
+        _on_wall_now2 = (
+            not self.on_ground
+            and (self.touching_wall_left or self.touching_wall_right)
+            and not self.is_dead
+        )
+        if _on_wall_now2:
+            if not self._wall_land_played:
+                try:
+                    self.audio_manager.play_sfx("hornet_wall_land")
+                except Exception:
+                    pass
+                self._wall_land_played = True
+        else:
+            self._wall_land_played = False
+
+        if self.on_ground and not self.is_dead and not self.is_healing and not self.is_resting:
+            if abs(self.velocity_x) > 10 or abs(self.knockback_velocity_x) > 10:
+                self._footstep_timer -= dt
+                if self._footstep_timer <= 0.0:
+                    self._footstep_timer = self._footstep_interval
+                    try:
+                        self.audio_manager.play_sfx_random([
+                            "hornet_footstep_1", "hornet_footstep_2",
+                            "hornet_footstep_3", "hornet_footstep_4",
+                        ])
+                    except Exception:
+                        pass
+            else:
+                self._footstep_timer = 0.0
+        else:
+            self._footstep_timer = 0.0
 
         self._update_pose_animations(dt)
 
@@ -2439,7 +2582,11 @@ class Hornet:
                     hit_flash_rect.x += int(effect_offset_x)
                     hit_flash_rect.y += int(effect_offset_y)
                     screen.blit(hit_flash_frame, hit_flash_rect)
-        
+
+    def draw_hud(self, screen):
+        """Draw HUD elements at fixed screen positions (health, silk, instructions).
+        Always draws at absolute screen coordinates regardless of any zoom or camera.
+        """
         instructions_draw_x = 10
         instructions_draw_y = config.game_height - 550
         if self._instruction_line_surfaces is None:
@@ -2540,5 +2687,6 @@ class Hornet:
         self._hud_prev_silk = self.silk
         self.hud_silk_up_slots = []
         self.hud_silk_up_animating_slots = []
+        self.hud_silk_up_queue = []
         self.hit_flash_world_center = None
         self._trigger_hud_enter_game()

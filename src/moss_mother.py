@@ -7,10 +7,16 @@ from asset_paths import resolve_image_path
 import config
 
 
+_white_overlay_cache: dict = {}
+
 def _apply_white_overlay(surface, intensity):
     """Return a copy of surface blended with white at the given intensity (0-255)."""
     result = surface.copy()
-    white_layer = pygame.Surface(surface.get_size())
+    size = surface.get_size()
+    white_layer = _white_overlay_cache.get(size)
+    if white_layer is None:
+        white_layer = pygame.Surface(size)
+        _white_overlay_cache[size] = white_layer
     white_layer.fill((intensity, intensity, intensity))
     result.blit(white_layer, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
     return result
@@ -30,7 +36,7 @@ class MossMother:
             image_path,
             frame_width=self.FRAME_WIDTH,
             frame_height=self.FRAME_HEIGHT,
-            scale=self.ANIMATION_SCALE * config.scale_y * config.ENEMY_SCALE_MULTIPLIER,
+            scale=self.ANIMATION_SCALE * config.ENEMY_SCALE_MULTIPLIER,
         )
         self._load_animations()
         self.animations = self.animation.animations
@@ -154,6 +160,11 @@ class MossMother:
         self.hitbox_inset_y = 0.18
         self._load_death_part_images()
 
+        # Audio
+        self.audio_manager = AudioManager()
+        self._scream_timer = random.uniform(5.0, 12.0)
+        self._death_parts_landed_count = 0
+
         # Per-animation draw offsets for easy visual tuning.
         self.animation_draw_offsets = {
             "default": (0, 0),
@@ -196,7 +207,7 @@ class MossMother:
 
     def _load_death_part_images(self):
         """Load and scale the three Moss Mother death piece sprites."""
-        death_scale = self.ANIMATION_SCALE * config.scale_y * config.ENEMY_SCALE_MULTIPLIER
+        death_scale = self.ANIMATION_SCALE * config.ENEMY_SCALE_MULTIPLIER
         self.death_part_images = []
         for idx in (1, 2, 3):
             part_image = pygame.image.load(resolve_image_path(f"sprite/moss_mother_death_{idx}.png")).convert_alpha()
@@ -216,6 +227,7 @@ class MossMother:
         self.death_body_visible = True
         self.death_parts = []
         self._death_roar_triggered = True
+        self._death_parts_landed_count = 0
 
         # Cancel all active combat states during death sequence.
         self.is_attacking = False
@@ -229,6 +241,14 @@ class MossMother:
         self.attack_finish_anim_timer = 0.0
         self.velocity_x = 0.0
         self.velocity_y = 0.0
+        try:
+            self.audio_manager.play_sfx("boss_death_1")
+        except Exception:
+            pass
+        try:
+            self.audio_manager.play_sfx("enemy_death")
+        except Exception:
+            pass
 
     def consume_death_roar_trigger(self):
         """Return True once when death roar starts (for Hornet roar-lock trigger)."""
@@ -292,13 +312,10 @@ class MossMother:
                     part["velocity_y"] = 0.0
                     part["landed"] = True
                     landed = True
-
-            if not landed and part["rect"].bottom > self.screen_height + 400:
-                part["rect"].bottom = self.screen_height + 400
-                part["velocity_x"] = 0.0
-                part["velocity_y"] = 0.0
-                part["landed"] = True
-
+                    try:
+                        self.audio_manager.play_sfx("enemy_corpse_land")
+                    except Exception:
+                        pass
         self.death_sequence_complete = all(part["landed"] for part in self.death_parts)
 
     def _set_animation(self, name, reset=False):
@@ -430,7 +447,7 @@ class MossMother:
 
     def start_cry_attack(self):
         """Begin the cry attack and emit a one-shot trigger for the game to handle hazards."""
-        if self.is_attacking or self.is_crying:
+        if self.is_crying or self.is_attacking:
             return False
         self.is_crying = True
         self.cry_timer = self.cry_duration
@@ -440,6 +457,10 @@ class MossMother:
         self.velocity_y = 0.0
         self.attack_contact_registered = False
         self.phase_through = False
+        try:
+            self.audio_manager.play_sfx("boss_wall_hit")
+        except Exception:
+            pass
         return True
 
     def consume_cry_attack_trigger(self):
@@ -898,6 +919,10 @@ class MossMother:
             self.use_gravity = True
             self.stagger_recovery_timer = self.stagger_recovery_time
             self.stagger_count += 1
+            try:
+                self.audio_manager.play_sfx("boss_stun")
+            except Exception:
+                pass
 
     def reset_position(self, x, y):
         """
@@ -945,6 +970,8 @@ class MossMother:
         self.death_body_visible = True
         self.death_parts = []
         self._death_roar_triggered = False
+        self._death_parts_landed_count = 0
+        self._scream_timer = random.uniform(5.0, 12.0)
         self._set_animation("idle_right", reset=True)
 
     def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0, player_world_rect=None, arena_rect=None):
@@ -985,6 +1012,10 @@ class MossMother:
                     self.death_roar_active = False
                     self.death_body_visible = False
                     self._spawn_death_parts()
+                    try:
+                        self.audio_manager.play_sfx("boss_death_2")
+                    except Exception:
+                        pass
             else:
                 self._update_death_parts(dt, collision_rects, camera_x=camera_x, camera_y=camera_y)
             return
@@ -993,6 +1024,16 @@ class MossMother:
             self.knockback_velocity_x = max(0.0, self.knockback_velocity_x - self.knockback_decay * dt)
         elif self.knockback_velocity_x < 0.0:
             self.knockback_velocity_x = min(0.0, self.knockback_velocity_x + self.knockback_decay * dt)
+
+        # Random mossgrub scream when engaged
+        if self.is_engaged and not self.is_dying:
+            self._scream_timer -= dt
+            if self._scream_timer <= 0.0:
+                self._scream_timer = random.uniform(6.0, 14.0)
+                try:
+                    self.audio_manager.play_sfx("mossgrub_scream")
+                except Exception:
+                    pass
 
         if self.attack_timer > 0.0:
             self.attack_timer = max(0.0, self.attack_timer - dt)

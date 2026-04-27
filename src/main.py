@@ -17,6 +17,11 @@ from mossgrub import MossGrub
 from moss_mother import MossMother
 from runtime_paths import assets_path, images_path
 
+# Enable bilinear filtering for pygame.SCALED so the 1920×1080 logical surface
+# is smoothly upscaled on larger monitors instead of using nearest-neighbor (pixelated).
+import os
+os.environ["SDL_RENDER_SCALE_QUALITY"] = "linear"
+
 # Initialize pygame
 pygame.init()
 
@@ -259,9 +264,21 @@ class Silksong:
 
     def __init__(self):
         """Set up the game window, assets, and subsystems."""
-        # Create fullscreen display at actual screen size
-        self.screen = pygame.display.set_mode((config.screen_width, config.screen_height), pygame.FULLSCREEN)
-        
+        # Create fullscreen display using pygame.SCALED so the game's 1920×1080
+        # logical surface is automatically hardware-scaled to fit any monitor
+        # resolution while preserving aspect ratio (black bars if needed).
+        # Mouse events are remapped to logical coordinates automatically.
+        self.screen = pygame.display.set_mode(
+            (config.game_width, config.game_height),
+            pygame.FULLSCREEN | pygame.SCALED,
+        )
+        # Intermediate surface: the full 1920×1080 world renders here each frame.
+        # A viewport-sized crop is then smoothscaled to the screen for the zoom effect.
+        self._world_surface = pygame.Surface((config.game_width, config.game_height)).convert()
+        # Pre-allocated destination for the per-frame smoothscale — avoids creating a
+        # new 1920×1080 surface every frame, which was the main render-thread bottleneck.
+        self._zoom_surface = pygame.Surface((config.game_width, config.game_height)).convert()
+
         pygame.display.set_caption("Silksong")
         self.running = True
         self.state = "title screen"
@@ -277,21 +294,21 @@ class Silksong:
         
         # Load and scale title image using cache
         title_img_path = resolve_image_path("title.png")
-        self.title_image = self._load_and_scale_image(title_img_path, int(880 * config.scale_x), int(440 * config.scale_y))
+        self.title_image = self._load_and_scale_image(title_img_path, 880, 440)
         
         # Load and scale title element (needle)
         title_needle_path = resolve_image_path("hornet_title_screen_boneforest_0003_hornet_needle.png")
-        title_needle = self._load_and_scale_image(title_needle_path, int(186*config.scale_x), int(864*config.scale_y))
+        title_needle = self._load_and_scale_image(title_needle_path, 186, 864)
         self.title_needle = title_needle
     
         # Load and scale title element (pin)
         title_pin_path = resolve_image_path("hornet_title_screen_boneforest_0002_lace_pin.png")
-        title_pin_scaled = self._load_and_scale_image(title_pin_path, int(94*config.scale_x), int(613*config.scale_y))
+        title_pin_scaled = self._load_and_scale_image(title_pin_path, 94, 613)
         self.title_pin = pygame.transform.rotate(title_pin_scaled, -5)  # Rotate 15 degrees to the right (negative = clockwise)
         
         # Load and scale title element (boulder)
         title_boulder_path = resolve_image_path("hornet_title_screen_boneforest_0000_bone_cliff_01.png")
-        self.title_boulder = self._load_and_scale_image(title_boulder_path, int(552*config.scale_x), int(236*config.scale_y))
+        self.title_boulder = self._load_and_scale_image(title_boulder_path, 552, 236)
 
         # Load and scale background image using cache
         background_img_path = resolve_image_path("title_screen_bg.jpg")
@@ -317,7 +334,9 @@ class Silksong:
         
         # Initialize audio manager
         self.audio_manager = AudioManager()
-        
+        self._load_game_sounds()
+        self.audio_manager.play_music("Title", loop=True)
+
         # Save file state
         self.current_slot = 1
         self.game_state = None
@@ -354,12 +373,12 @@ class Silksong:
         # Create buttons
         self.create_buttons() # Normal buttons
         self.game_back_button = Button(
-            int(config.screen_width - 90 * config.scale_x),
-            int(45 * config.scale_y),
+            config.screen_width - 90,
+            45,
             "Back",
             config.white,
             config.title_font_path,
-            int(30 * config.scale_y),
+            30,
         )
         self._game_back_button_was_hovered = False
         self.game_back_click_delay = 0.2
@@ -388,7 +407,7 @@ class Silksong:
             resolve_image_path("spritesheet/HUD/flash.png"),
             frame_width=1696,
             frame_height=396,
-            scale=0.7 * max(config.scale_x, config.scale_y),
+            scale=0.7,
         )
         flash_sheet = self.ui_flash_anim._get_sprite_sheet()
         flash_frame_count = max(1, flash_sheet.get_width() // self.ui_flash_anim.frame_width)
@@ -411,6 +430,10 @@ class Silksong:
         self.boss_arena_camera = None
         self.camera_locked_to_arena = False
         self.arena_camera_lerp_speed = 6.0
+        # Smoothly-lerped viewport crop center used during arena transitions.
+        # None = use Hornet's direct screen position (no transition active).
+        self._crop_cx = None
+        self._crop_cy = None
         self.camera_shake_timer = 0.0
         self.camera_shake_duration = 0.0
         self.camera_shake_intensity = 0.0
@@ -452,8 +475,8 @@ class Silksong:
         # Boss arena sized to exactly one camera view.
 
         
-        arena_width = int(config.screen_width - 160)
-        arena_height = int(config.screen_height - 80)
+        arena_width = 1380
+        arena_height = 760
         arena_floor_y = base_y - 1800
         arena_ceiling_y = arena_floor_y - arena_height
         arena_left = start_x - arena_width
@@ -504,7 +527,8 @@ class Silksong:
         """
         if not self.player or not self.boss_arena_rect or not self.boss_arena_camera:
             self.camera_locked_to_arena = False
-            
+            self._crop_cx = None
+            self._crop_cy = None
             return
 
         should_lock = self.boss_arena_rect.colliderect(player_world_rect)
@@ -542,6 +566,32 @@ class Silksong:
             world_x=int(player_world_rect.x),
             world_y=int(player_world_rect.y),
         )
+
+    def _update_arena_crop_center(self, player_world_rect, dt):
+        """
+        Lerp the viewport crop center toward the arena center (when locked) or back
+        to Hornet (when unlocking).  This prevents the hard visual jump that would
+        occur if draw_game switched crop targets based on a boolean.
+        """
+        blend = min(1.0, self.arena_camera_lerp_speed * dt)
+        if self.camera_locked_to_arena and self.boss_arena_rect:
+            target_cx = float(self.boss_arena_rect.centerx - self.camera_x)
+            target_cy = float(self.boss_arena_rect.centery - self.camera_y)
+            if self._crop_cx is None:
+                # First frame entering the arena: seed from Hornet's current screen pos.
+                self._crop_cx = float(self.player.rect.centerx)
+                self._crop_cy = float(self.player.rect.centery)
+            self._crop_cx += (target_cx - self._crop_cx) * blend
+            self._crop_cy += (target_cy - self._crop_cy) * blend
+        elif self._crop_cx is not None:
+            # Camera just unlocked; lerp crop center back to Hornet.
+            target_cx = float(self.player.rect.centerx)
+            target_cy = float(self.player.rect.centery)
+            self._crop_cx += (target_cx - self._crop_cx) * blend
+            self._crop_cy += (target_cy - self._crop_cy) * blend
+            if abs(target_cx - self._crop_cx) < 0.5 and abs(target_cy - self._crop_cy) < 0.5:
+                self._crop_cx = None
+                self._crop_cy = None
 
     def _is_floor_collider(self, collider_rect):
         """
@@ -612,6 +662,71 @@ class Silksong:
         self.camera_y = int(ground_top - self.player.rect.bottom)
         self.player.velocity_y = 0
         self.player.on_ground = True
+
+    def _snap_player_to_floor(self, search_radius=8):
+        """Snap Hornet exactly onto the nearest floor at or below her current world position.
+
+        Unlike _clamp_player_above_colliding_ground (which only fires when already inside
+        a collider), this also handles the 1-3px float-truncation gap that can occur after
+        save/load or respawn, preventing the first physics frame from dropping her through.
+        """
+        if not self.player:
+            return
+
+        world_bottom = self.player.rect.bottom + int(self.camera_y)
+        world_left   = self.player.rect.left   + int(self.camera_x)
+        world_right  = self.player.rect.right  + int(self.camera_x)
+
+        # Search from slightly above current bottom downward.
+        search_top    = world_bottom - search_radius
+        search_bottom = world_bottom + search_radius
+
+        best_floor_top = None
+        for collider_rect in self.ground_colliders:
+            if not self._is_floor_collider(collider_rect):
+                continue
+            if world_right <= collider_rect.left or world_left >= collider_rect.right:
+                continue
+            if collider_rect.top < search_top or collider_rect.top > search_bottom:
+                continue
+            # Among matching floors pick the one whose top is closest to world_bottom
+            # (prefer the surface the entity should land on, not one above them).
+            if best_floor_top is None or abs(collider_rect.top - world_bottom) < abs(best_floor_top - world_bottom):
+                best_floor_top = collider_rect.top
+
+        if best_floor_top is not None:
+            self.camera_y = int(best_floor_top - self.player.rect.bottom)
+            self.player.velocity_y = 0
+            self.player.on_ground = True
+
+    def _snap_mossgrub_to_floor(self, search_radius=8):
+        """Snap MossGrub exactly onto the nearest floor at or below its current world position."""
+        if not self.mossgrub:
+            return
+
+        world_bottom = self.mossgrub.rect.bottom + int(self.camera_y)
+        world_left   = self.mossgrub.rect.left   + int(self.camera_x)
+        world_right  = self.mossgrub.rect.right  + int(self.camera_x)
+
+        search_top    = world_bottom - search_radius
+        search_bottom = world_bottom + search_radius
+
+        best_floor_top = None
+        for collider_rect in self.ground_colliders:
+            if not self._is_floor_collider(collider_rect):
+                continue
+            if world_right <= collider_rect.left or world_left >= collider_rect.right:
+                continue
+            if collider_rect.top < search_top or collider_rect.top > search_bottom:
+                continue
+            if best_floor_top is None or abs(collider_rect.top - world_bottom) < abs(best_floor_top - world_bottom):
+                best_floor_top = collider_rect.top
+
+        if best_floor_top is not None:
+            new_screen_y = int(best_floor_top - self.camera_y) - self.mossgrub.rect.height
+            self.mossgrub.rect.y = new_screen_y
+            self.mossgrub.velocity_y = 0
+            self.mossgrub.on_ground = True
 
     def _reset_player_camera_follow(self, world_x=None, world_y=None):
         """
@@ -750,7 +865,7 @@ class Silksong:
         """Remove all temporary arena-spawned MossGrub entities."""
         self.mossgrubs["arena"] = {}
 
-    def _spawn_arena_mossgrub(self, spawn_world_x):
+    def _spawn_arena_mossgrub(self, spawn_world_x, spawn_world_y=None):
         """Spawn a temporary MossGrub in the arena without touching overworld MossGrub state."""
         if not self.boss_arena_rect:
             return
@@ -761,7 +876,10 @@ class Silksong:
         arena_grub = MossGrub(0, 0, config.screen_width, config.screen_height)
         arena_grub.health = arena_grub.max_health
 
-        world_bottom = int(self.boss_arena_rect.bottom)
+        if spawn_world_y is not None:
+            world_bottom = int(spawn_world_y)
+        else:
+            world_bottom = int(self.boss_arena_rect.bottom)
         world_x = int(max(self.boss_arena_rect.left + arena_grub.rect.width // 2,
                           min(self.boss_arena_rect.right - arena_grub.rect.width // 2, spawn_world_x)))
         arena_grub.rect.midbottom = (
@@ -774,9 +892,9 @@ class Silksong:
 
         self.mossgrubs["arena"][arena_id] = arena_grub
 
-    def _activate_arena_mossgrub(self, spawn_world_x):
+    def _activate_arena_mossgrub(self, spawn_world_x, spawn_world_y=None):
         """Spawn an arena-specific MossGrub entity."""
-        self._spawn_arena_mossgrub(spawn_world_x)
+        self._spawn_arena_mossgrub(spawn_world_x, spawn_world_y=spawn_world_y)
 
     def _restore_mossgrub_overworld_state(self):
         """Clear temporary arena MossGrubs when leaving the boss arena."""
@@ -846,6 +964,7 @@ class Silksong:
         self.trigger_camera_shake(duration=0.9, intensity=14.0)
         if self.player:
             self.player.start_stun(2.0)
+            self.audio_manager.play_sfx("hornet_roar_lock")
         self._spawn_mossmother_cry_rocks()
 
     def _update_falling_rocks(self, dt, player_world_rect):
@@ -868,7 +987,7 @@ class Silksong:
             if ground_top is not None and rock_rect.bottom >= ground_top:
                 rock_rect.bottom = int(ground_top)
                 if rock.get("spawn_mossgrub"):
-                    self._activate_arena_mossgrub(spawn_world_x=rock_rect.centerx)
+                    self._activate_arena_mossgrub(spawn_world_x=rock_rect.centerx, spawn_world_y=rock_rect.bottom)
                 continue
 
             if self.player and player_world_rect.colliderect(rock_rect) and self.player_contact_damage_timer <= 0.0:
@@ -924,9 +1043,9 @@ class Silksong:
     def create_buttons(self):
         """Create the title screen menu buttons."""
         # Scale positions to actual screen size
-        button_spacing = int(80 * config.scale_y)
-        shifty = int(200 * config.scale_y)
-        button_font_size = int(40 * config.scale_y)
+        button_spacing = 80
+        shifty = 200
+        button_font_size = 40
         
         self.buttons = {
             "start": Button(config.screen_width/2, config.screen_height/2 - button_spacing+shifty, "Start Game", config.white, config.title_font_path, button_font_size),
@@ -1215,6 +1334,7 @@ class Silksong:
         player_world_rect = player.rect.copy()
         player_world_rect.x += int(self.camera_x)
         player_world_rect.y += int(self.camera_y)
+        self._update_arena_crop_center(player_world_rect, dt)
 
         bench_rect = player.bench.rect
         self.player_near_bench = player_world_rect.colliderect(bench_rect)
@@ -1289,6 +1409,7 @@ class Silksong:
                 self._start_mossmother_cry_attack()
             if self.mossmother.consume_death_roar_trigger() and self.player and not self.player.is_dead:
                 self.player.start_stun(duration=self.mossmother.death_roar_duration)
+                self.audio_manager.play_sfx("hornet_roar_lock")
 
             if self.player.stun_timer > 0.0 and (self.mossmother.is_crying or self.mossmother.death_roar_active):
                 mossmother_world_hitbox = self.mossmother.get_world_hitbox(camera_x=self.camera_x, camera_y=self.camera_y)
@@ -1445,7 +1566,8 @@ class Silksong:
 
         # Restore world-space respawn location and release any arena camera lock.
         self._reset_player_camera_follow(world_x=respawn_x, world_y=respawn_y)
-        self._clamp_player_above_colliding_ground()
+        # Snap to nearest floor (handles 1-3px float-truncation gap as well as penetration).
+        self._snap_player_to_floor()
         self.player.reset_position(self.player.rect.centerx, self.player.rect.bottom)
 
         self.player.health = self.player.max_health
@@ -1523,6 +1645,53 @@ class Silksong:
         self.game_state = base_state
         self._last_saved_signature = state_signature
     
+    def _load_game_sounds(self):
+        """Register every game sound effect with the audio manager."""
+        self.audio_manager.load_sounds({
+            # UI
+            "button_click": "button",
+            # Hornet movement
+            "hornet_jump": "hornet_jump",
+            "hornet_wall_jump": "hornet_wall_jump",
+            "hornet_land_moss": "hornet_land_moss",
+            "hornet_wall_land": "hornet_wall_land",
+            "hornet_footstep_1": "hornet_footstep_moss_1",
+            "hornet_footstep_2": "hornet_footstep_moss_2",
+            "hornet_footstep_3": "hornet_footstep_moss_3",
+            "hornet_footstep_4": "hornet_footstep_moss_4",
+            "hornet_mantle_grab": "hornet_mantle_grab",
+            # Hornet combat
+            "hornet_sword": "hornet_sword",
+            "hornet_attack_scream_1": "hornet_attack_scream_1",
+            "hornet_attack_scream_2": "hornet_attack_scream_2",
+            "hornet_attack_scream_3": "hornet_attack_scream_3",
+            "hornet_attack_scream_4": "hornet_attack_scream_4",
+            # Hornet silk / healing
+            "hornet_silkcharge": "hornet_silkcharge",
+            "hornet_bind_ready": "hornet_bind_ready",
+            "hornet_bind_1": "hornet_bind_1",
+            "hornet_bind_2": "hornet_bind_2",
+            "hornet_bind_break": "hornet_bind_break",
+            "hornet_bind_scream_1": "hornet_bind_scream_1",
+            "hornet_bind_scream_2": "hornet_bind_scream_2",
+            # Hornet life events
+            "hornet_death": "hornet_death",
+            "hornet_death_scream": "hornet_death_scream",
+            "hornet_roar_lock": "hornet_roar_lock_grunt",
+            "hornet_wake_up": "hornet_wake_up",
+            "bench_rest": "bench_rest",
+            # Boss / enemies
+            "boss_death_1": "boss_death_1",
+            "boss_death_2": "boss_death_2",
+            "boss_stun": "boss_stun",
+            "boss_wall_hit": "boss_wall_hit",
+            "enemy_death": "enemy_death",
+            "enemy_corpse_land": "enemy_corpse_land",
+            "mossgrub_scream": "mossgrub_scream",
+            # Atmosphere
+            "atmos_moss_cave": "atmos_moss_cave",
+        })
+
     def change_state(self, new_state):
         """
         Transition to a new game state with a black fade.
@@ -1539,10 +1708,20 @@ class Silksong:
             # Refresh save slot cache when entering save files screen
             if target_state == "save files":
                 self.save_file.refresh_slot_status()
-        
+            # Music and atmosphere transitions
+            if target_state in ("title screen", "settings", "save files"):
+                self.audio_manager.play_music("Title", loop=True)
+                self.audio_manager.stop_atmosphere()
+            elif target_state == "game":
+                self.audio_manager.play_music("main", loop=True)
+                self.audio_manager.play_atmosphere("atmos_moss_cave")
+            elif target_state == "cutscene":
+                self.audio_manager.play_music("intro_cinematics", loop=False)
+                self.audio_manager.stop_atmosphere()
+
         self.transition_manager.start_transition(
             target_state=new_state,
-            
+
             transition_type=TransitionType.FADE_COLOR,
             speed=2.0,
             state_change_callback=on_state_change,
@@ -1558,13 +1737,13 @@ class Silksong:
         self.particle_system.draw_particles(self.screen, size_max=6.0)
         
         # Draw the Silksong title image
-        title_rect = self.title_image.get_rect(center=(config.screen_width/2, int(config.screen_height/2 - 200 * config.scale_y)))
+        title_rect = self.title_image.get_rect(center=(config.screen_width/2, config.screen_height//2 - 200))
         self.screen.blit(self.title_image, title_rect)
         
         # Draw title spikes (boneforest images)
-        self.screen.blit(self.title_needle, (int(1500 * config.scale_x), int(175 * config.scale_y)))
-        self.screen.blit(self.title_pin, (int(1300 * config.scale_x), int(475 * config.scale_y)))
-        self.screen.blit(self.title_boulder, (int(1050 * config.scale_x), int(850 * config.scale_y)))
+        self.screen.blit(self.title_needle, (1500, 175))
+        self.screen.blit(self.title_pin, (1300, 475))
+        self.screen.blit(self.title_boulder, (1050, 850))
 
         # Draw large ember particles (in front of boneforest)
         self.particle_system.draw_particles(self.screen, size_min=5.0)
@@ -1591,10 +1770,10 @@ class Silksong:
             self.screen.blit(self.cutscene_surface, self.cutscene_rect)
 
         if self._cutscene_skip_hint_surface is None:
-            hint_font = config.get_font(int(24 * config.scale_y))
+            hint_font = config.get_font(24)
             self._cutscene_skip_hint_surface = hint_font.render("Press any key or click to skip", True, (220, 220, 220))
             self._cutscene_skip_hint_rect = self._cutscene_skip_hint_surface.get_rect(
-                midbottom=(config.screen_width // 2, config.screen_height - int(24 * config.scale_y))
+                midbottom=(config.screen_width // 2, config.screen_height - 24)
             )
         self.screen.blit(self._cutscene_skip_hint_surface, self._cutscene_skip_hint_rect)
     
@@ -1602,83 +1781,118 @@ class Silksong:
         """Render the main game world, HUD, and all active entities."""
         self._ensure_game_render_assets()
 
-        # Draw background (could add parallax later)
-        # Get the look offset from the player (camera pans up/down)
+        # All world content renders into _world_surface at full 1920×1080.
+        # A viewport-sized crop centered on Hornet is then smoothscaled to
+        # fill self.screen, producing a zoom effect without moving anything.
         look_y = self.player.camera_look_y if self.player else 0
         shake_x, shake_y = self.camera_shake_offset
+
+        ws = self._world_surface
+        # Only clear the viewport region — the rest of _world_surface is never displayed.
+        vw = config.camera_viewport_width
+        vh = config.camera_viewport_height
+        if self.player:
+            if self._crop_cx is not None:
+                _fill_cx = self._crop_cx
+                _fill_cy = self._crop_cy
+            else:
+                _fill_cx = float(self.player.rect.centerx)
+                _fill_cy = float(self.player.rect.centery)
+            _fill_x = max(0, min(config.game_width - vw, int(_fill_cx - vw // 2)))
+            _fill_y = max(0, min(config.game_height - vh, int(_fill_cy - vh // 2)))
+        else:
+            _fill_x = (config.game_width - vw) // 2
+            _fill_y = (config.game_height - vh) // 2
+        ws.fill((0, 0, 0), pygame.Rect(_fill_x, _fill_y, vw, vh))
 
         bg_width, bg_height = self.game_background_image.get_size()
         bg_x = int((config.screen_width - bg_width) / 2 - self.camera_x * 0.18 + shake_x)
         bg_y = int((config.screen_height - bg_height) / 2 - self.camera_y * 0.12 - look_y * 0.35 + shake_y)
-
-        # Draw one oversized background image and clamp it so it never tiles.
         bg_x = min(0, max(config.screen_width - bg_width, bg_x))
         bg_y = min(0, max(config.screen_height - bg_height, bg_y))
-        self.screen.blit(self.game_background_image, (bg_x, bg_y))
-        
+        ws.blit(self.game_background_image, (bg_x, bg_y))
+
         # Draw collider map overlay layers aligned to world space.
         for layer_data in getattr(self, "_collider_map_layers", {}).values():
             layer_image = layer_data.get("image")
             layer_origin = layer_data.get("world_origin")
             if layer_image is None or layer_origin is None:
                 continue
-
             world_x, world_y = layer_origin
             screen_x = int(world_x - self.camera_x + shake_x)
             screen_y = int(world_y - self.camera_y - look_y + shake_y)
-            self.screen.blit(layer_image, (screen_x, screen_y))
+            ws.blit(layer_image, (screen_x, screen_y))
 
         self.particle_system.draw_gameplay_particles(
-            self.screen,
+            ws,
             camera_x=self.camera_x,
             camera_y=self.camera_y,
             look_y_offset=look_y,
             screen_offset=(shake_x, shake_y),
         )
 
-        # Draw all MossGrub entities (overworld + arena spawned).
         for grub, _ in self._iter_mossgrub_entities():
-            grub.draw(
-                self.screen,
-                look_y_offset=-look_y,
-                screen_offset=(shake_x, shake_y),
-            )
+            grub.draw(ws, look_y_offset=-look_y, screen_offset=(shake_x, shake_y))
 
-        # Draw Moss Mother (rect is now in screen space)
         if self.mossmother and (self.mossmother.health > 0 or self.mossmother.is_dying):
-            self.mossmother.draw(
-                self.screen,
-                look_y_offset=-look_y,
-                screen_offset=(shake_x, shake_y),
-            )
+            self.mossmother.draw(ws, look_y_offset=-look_y, screen_offset=(shake_x, shake_y))
 
-        # Draw falling rock hazards for Moss Mother's cry attack.
         if self.moss_collapse_plat_image is not None:
             for rock in self.falling_rocks:
                 rock_draw_rect = rock["rect"].copy()
                 rock_draw_rect.x -= int(self.camera_x - shake_x)
                 rock_draw_rect.y -= int(self.camera_y + look_y - shake_y)
-                self.screen.blit(self.moss_collapse_plat_image, rock_draw_rect)
+                ws.blit(self.moss_collapse_plat_image, rock_draw_rect)
 
-        # Draw player (offset by look_y so player moves with the world)
         if self.player:
-            self.player.bench.draw(self.screen, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y, screen_offset=(shake_x, shake_y))
+            self.player.bench.draw(ws, camera_x=self.camera_x, camera_y=self.camera_y, look_y_offset=look_y, screen_offset=(shake_x, shake_y))
             self.player.draw(
-                self.screen,
+                ws,
                 look_y_offset=-look_y,
                 screen_offset=(shake_x, shake_y),
                 camera_x=self.camera_x,
                 camera_y=self.camera_y,
             )
 
-        # HUD prompt text (keep only interaction prompt; health/silk are rendered by Hornet HUD animations).
+        # Highlight ground colliders: green for floors, orange for walls.
+        for collider_rect in self.ground_colliders[1:]:
+            sx = int(collider_rect.x - self.camera_x + shake_x)
+            sy = int(collider_rect.y - self.camera_y - look_y + shake_y)
+            color = (0, 230, 80) if self._is_floor_collider(collider_rect) else (230, 120, 0)
+            pygame.draw.rect(ws, color, pygame.Rect(sx, sy, collider_rect.width, collider_rect.height), 2)
+
+        # Zoom: crop _world_surface (viewport size) and smoothscale to fill the display.
+        # When Hornet is inside the boss arena, lock the crop center to the arena center
+        # so the entire arena is always visible.  Otherwise follow Hornet.
+        vw = config.camera_viewport_width
+        vh = config.camera_viewport_height
+        if self.player:
+            if self._crop_cx is not None:
+                cx = self._crop_cx + shake_x
+                cy = self._crop_cy - look_y + shake_y
+            else:
+                cx = self.player.rect.centerx + shake_x
+                cy = self.player.rect.centery - look_y + shake_y
+            crop_x = max(0, min(config.game_width - vw, int(cx - vw // 2)))
+            crop_y = max(0, min(config.game_height - vh, int(cy - vh // 2)))
+        else:
+            crop_x = (config.game_width - vw) // 2
+            crop_y = (config.game_height - vh) // 2
+        pygame.transform.smoothscale(
+            ws.subsurface(pygame.Rect(crop_x, crop_y, vw, vh)),
+            (config.game_width, config.game_height),
+            self._zoom_surface,
+        )
+        self.screen.blit(self._zoom_surface, (0, 0))
+
+        # HUD and UI draw directly on self.screen at fixed positions — unaffected by zoom.
         if self.player:
             if self.bench_interact_text:
                 if self._bench_prompt_cache_text != self.bench_interact_text:
-                    prompt_font = config.get_font(int(32 * config.scale_y))
+                    prompt_font = config.get_font(32)
                     self._bench_prompt_cache_surface = prompt_font.render(self.bench_interact_text, True, config.white)
                     self._bench_prompt_cache_rect = self._bench_prompt_cache_surface.get_rect(
-                        center=(config.screen_width // 2, int(130 * config.scale_y))
+                        center=(config.screen_width // 2, 130)
                     )
                     bg_rect = self._bench_prompt_cache_rect.inflate(24, 14)
                     self._bench_prompt_cache_bg = pygame.Surface((bg_rect.width, bg_rect.height), pygame.SRCALPHA)
@@ -1687,6 +1901,8 @@ class Silksong:
                     self._bench_prompt_cache_text = self.bench_interact_text
                 self.screen.blit(self._bench_prompt_cache_bg, self._bench_prompt_cache_bg_topleft)
                 self.screen.blit(self._bench_prompt_cache_surface, self._bench_prompt_cache_rect)
+
+            self.player.draw_hud(self.screen)
 
         self.game_back_button.draw(self.screen)
     
@@ -1879,8 +2095,8 @@ class Silksong:
                         # Rebuild colliders after loading world position so spawn platform is under Hornet.
                         self._build_ground_colliders()
 
-                        # Only correct penetration if the loaded position intersects a floor collider.
-                        self._clamp_player_above_colliding_ground()
+                        # Snap to nearest floor — handles both penetration and float-truncation gaps.
+                        self._snap_player_to_floor()
 
                         # Place MossGrub using stable world-space platform bounds.
                         self._set_mossgrub_spawn_and_patrol()
@@ -1925,9 +2141,8 @@ class Silksong:
                             if self._is_valid_mossgrub_world_rect(saved_mossgrub_world_rect):
                                 self.mossgrub.rect.x = saved_mossgrub_world_x - int(self.camera_x)
                                 self.mossgrub.rect.y = saved_mossgrub_world_y - int(self.camera_y)
-
-                                if colliding_top is not None and saved_mossgrub_world_rect.bottom > colliding_top + 2:
-                                    self._clamp_mossgrub_above_colliding_ground(world_x=saved_mossgrub_world_x)
+                                # Snap to nearest floor regardless of penetration amount.
+                                self._snap_mossgrub_to_floor()
                             else:
                                 self._set_mossgrub_spawn_and_patrol()
 

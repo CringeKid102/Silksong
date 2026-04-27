@@ -1,14 +1,21 @@
 import pygame
+import random
 from animation import Animation
 from audio import AudioManager
 from asset_paths import resolve_image_path
 import config
 
 
+_white_overlay_cache: dict = {}
+
 def _apply_white_overlay(surface, intensity):
     """Return a copy of surface blended with white at the given intensity (0-255)."""
     result = surface.copy()
-    white_layer = pygame.Surface(surface.get_size())
+    size = surface.get_size()
+    white_layer = _white_overlay_cache.get(size)
+    if white_layer is None:
+        white_layer = pygame.Surface(size)
+        _white_overlay_cache[size] = white_layer
     white_layer.fill((intensity, intensity, intensity))
     result.blit(white_layer, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
     return result
@@ -22,7 +29,7 @@ class MossGrub:
         image_path = resolve_image_path("spritesheet/enemy/mossgrub.png")
         frame_width = 128
         frame_height = 101
-        anim_scale = 0.45 * config.scale_y * config.ENEMY_SCALE_MULTIPLIER
+        anim_scale = 0.45 * config.ENEMY_SCALE_MULTIPLIER
         self.animation = Animation(
             image_path,
             frame_width=frame_width,
@@ -66,6 +73,7 @@ class MossGrub:
         
         # Audio manager instance
         self.audio_manager = AudioManager()
+        self._scream_timer = random.uniform(4.0, 10.0)
         
         # Camera velocity cache to avoid tuple creation each frame
         self._camera_velocity = [0, 0]
@@ -200,6 +208,10 @@ class MossGrub:
                     self.facing_right = -1
                 elif knockback_direction > 0:
                     self.facing_right = 1
+                try:
+                    self.audio_manager.play_sfx("enemy_death")
+                except Exception:
+                    pass
 
     def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0):
         """Update position, physics, and patrol movement."""
@@ -348,9 +360,23 @@ class MossGrub:
             self.knockback_velocity_x = min(0.0, self.knockback_velocity_x + self.knockback_decay * dt)
 
         if self.is_dying and landed:
+            if not self.death_landed:
+                try:
+                    self.audio_manager.play_sfx("enemy_corpse_land")
+                except Exception:
+                    pass
             self.death_landed = True
             self.knockback_velocity_x = 0.0
             self._frac_x = 0.0
+
+        if not self.is_dying:
+            self._scream_timer -= dt
+            if self._scream_timer <= 0.0:
+                self._scream_timer = random.uniform(6.0, 14.0)
+                try:
+                    self.audio_manager.play_sfx("mossgrub_scream")
+                except Exception:
+                    pass
 
         self._update_animation(dt)
 
