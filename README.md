@@ -1,5 +1,12 @@
 # Silksong (Fan Project)
 
+## v0.1.1 Release Notes
+
+- Added new audio files for improved in-game sound and effects.
+- Fixed several bugs from earlier prototypes.
+- **Known issues:** Major bugs still exist (such as phasing through walls/platforms and other collision problems). This is the first public version, so expect rough edges and incomplete features.
+
+
 Silksong is a 2D action platformer prototype inspired by Hollow Knight: Silksong, built with Python and Pygame. You play as Hornet in a combat-focused vertical slice featuring platforming, wall movement, bench checkpoints, save slots, and a boss encounter.
 
 ## Current Features
@@ -38,12 +45,6 @@ Silksong is a 2D action platformer prototype inspired by Hollow Knight: Silksong
 
 **Troubleshooting:** If you get "This app can't run on your pc", see [Windows Build Guide](WINDOWS_BUILD_GUIDE.md#common-compatibility-issues--solutions)
 
-### macOS
-
-1. Open the latest release and download the macOS build asset.
-2. Extract the archive.
-3. Open `Silksong.app`.
-4. If macOS blocks the app on first launch, right-click the app, choose **Open**, then confirm.
 
 ## Run From Source
 
@@ -62,9 +63,9 @@ python src/main.py
 
 ## Building for Distribution
 
-To build Windows or macOS executables, see:
+
+To build a Windows executable, see:
 - [Windows Build Guide](WINDOWS_BUILD_GUIDE.md)
-- [macOS Build Guide](MACOS_BUILD.md)
 
 ## Notes
 
