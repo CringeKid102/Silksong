@@ -1713,10 +1713,6 @@ class Hornet:
         prev_silk = self.silk
         self.silk = min(self.max_silk, self.silk + amount)
         if self.silk > prev_silk:
-            try:
-                self.audio_manager.play_sfx("hornet_silkcharge")
-            except Exception:
-                pass
             if self.silk >= self.max_silk:
                 try:
                     self.audio_manager.play_sfx("hornet_bind_ready")
@@ -1812,14 +1808,11 @@ class Hornet:
                 self.audio_manager.play_sfx("hornet_bind_2")
             except Exception:
                 pass
-            try:
-                self.audio_manager.play_sfx("hornet_bind_scream_2")
-            except Exception:
-                pass
+            # Removed hornet_bind_scream_2 SFX here
             self.hud_health_appear_active = True
             self.hud_health_appear_anim.set_animation("play", reset=True)
             self._sync_hud_resource_triggers()
-    
+
     def draw_health_bar(self, screen, x, y):
         """
         Draw a fixed-position health HUD and overlay health animations.
@@ -1972,6 +1965,11 @@ class Hornet:
             self.is_mantle_canceling = False
         self.health = max(0, self.health - damage)
         self._sync_hud_resource_triggers()
+
+        try:
+            self.audio_manager.play_sfx("hornet_silkcharge")
+        except Exception:
+            pass
 
         if self.health <= 0:
             self._start_death_animation()
@@ -2590,7 +2588,7 @@ class Hornet:
         instructions_draw_x = 10
         instructions_draw_y = config.game_height - 550
         if self._instruction_line_surfaces is None:
-            instructions_text = "Instructions:\nPress D to move right\nPress A to move left\nPress W to look up\nPress S to look down\nPress space to jump\nPress J to attack"
+            instructions_text = "Instructions:\nPress D to move right\nPress A to move left\nPress W to look up\nPress S to look down\nPress space to jump\nPress J to attack\nPress LSHIFT to heal"
             self._instruction_line_surfaces = [
                 config.font.render(line, True, config.white)
                 for line in instructions_text.split('\n')

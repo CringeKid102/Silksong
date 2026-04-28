@@ -193,6 +193,10 @@ class MossGrub:
         else:
             self.hit_white_timer = 0.12
             self.health = max(0, self.health - damage)
+            try:
+                self.audio_manager.play_sfx("hornet_silkcharge")
+            except Exception:
+                pass
             if knockback_direction < 0:
                 self.knockback_velocity_x = -self.knockback_strength
             elif knockback_direction > 0:

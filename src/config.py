@@ -97,13 +97,13 @@ collider_map_overlay = {
     "layers": {
         "upper": {
             "path": "collider_maps/collider_map_upper.png",
-            "offset": (-140, -135),
+            "offset": (-760, -135),
             "scale": 0.625,
             "world_origin_override": None,
         },
         "lower": {
             "path": "collider_maps/collider_map_lower.png",
-            "offset": (-140, -135),
+            "offset": (-760, -135),
             "scale": 0.625,
             "world_origin_override": None,
         },

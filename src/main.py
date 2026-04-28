@@ -1708,6 +1708,8 @@ class Silksong:
             # Refresh save slot cache when entering save files screen
             if target_state == "save files":
                 self.save_file.refresh_slot_status()
+            # Stop all SFX on state change to avoid channel bleed from previous session
+            self.audio_manager.stop_all_sfx()
             # Music and atmosphere transitions
             if target_state in ("title screen", "settings", "save files"):
                 self.audio_manager.play_music("Title", loop=True)
@@ -1853,13 +1855,6 @@ class Silksong:
                 camera_x=self.camera_x,
                 camera_y=self.camera_y,
             )
-
-        # Highlight ground colliders: green for floors, orange for walls.
-        for collider_rect in self.ground_colliders[1:]:
-            sx = int(collider_rect.x - self.camera_x + shake_x)
-            sy = int(collider_rect.y - self.camera_y - look_y + shake_y)
-            color = (0, 230, 80) if self._is_floor_collider(collider_rect) else (230, 120, 0)
-            pygame.draw.rect(ws, color, pygame.Rect(sx, sy, collider_rect.width, collider_rect.height), 2)
 
         # Zoom: crop _world_surface (viewport size) and smoothscale to fill the display.
         # When Hornet is inside the boss arena, lock the crop center to the arena center
@@ -2221,7 +2216,8 @@ class Silksong:
         # Save one last time before exiting
         self.save_current_game_state(force=True)
         self._release_cutscene_resources()
-        
+        # Stop all SFX channels on exit
+        self.audio_manager.stop_all_sfx()
         pygame.quit()
 
 # Run the game

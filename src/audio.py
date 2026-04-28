@@ -11,6 +11,13 @@ class AudioManager:
 
     _instance = None
     _initialized = False
+
+    def stop_all_sfx(self):
+        """Immediately stop all SFX channels (not music or atmosphere)."""
+        if not self._audio_available:
+            return
+        for ch in self.sfx_channels:
+            ch.stop()
     
     def __new__(cls):
         """Singleton pattern so only one AudioManager ever exists."""
