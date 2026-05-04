@@ -66,6 +66,12 @@ python src/main.py
 - This is the official game release (v0.1.1).
 - Save data is stored in your user data directory and persists between sessions.
 
+## Software Design Document
+link: https://docs.google.com/document/d/1nNzCgg0QuRoOSRTEvrNGjNiMsC82huj7JugOrphJwZs/edit?usp=sharing
+
+## Google Drive
+link: https://drive.google.com/drive/folders/1foAaEhXL4dWh4Fga4fy-DEGmPeq4DwHI?usp=sharing
+
 ## Sources
 
 [1] GeeksforGeeks, "Python Program for Breadth First Search (BFS) for a Graph," Jul. 23, 2025. [Online]. Available: https://www.geeksforgeeks.org/python/python-program-for-breadth-first-search-or-bfs-for-a-graph/
