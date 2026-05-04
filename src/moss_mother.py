@@ -902,10 +902,6 @@ class MossMother:
 
         self.hit_white_timer = 0.12
         self.health = max(0, self.health - damage)
-        try:
-            self.audio_manager.play_sfx("hornet_silkcharge")
-        except Exception:
-            pass
 
         if self.health <= 0:
             self._start_death_sequence()
