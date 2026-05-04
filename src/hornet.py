@@ -6,11 +6,17 @@ from bench import Bench
 from asset_paths import resolve_image_path
 import config
 
-
 _white_overlay_cache: dict = {}
 
 def _apply_white_overlay(surface, intensity):
-    """Return a copy of surface blended with white at the given intensity (0-255)."""
+    """
+    Return a copy of surface blended with white at the given intensity.
+    Args:
+        surface (pygame.Surface): Source surface to blend.
+        intensity (int): White overlay intensity (0–255).
+    Returns:
+        pygame.Surface: Blended copy of the surface.
+    """
     result = surface.copy()
     size = surface.get_size()
     white_layer = _white_overlay_cache.get(size)
@@ -21,12 +27,18 @@ def _apply_white_overlay(surface, intensity):
     result.blit(white_layer, (0, 0), special_flags=pygame.BLEND_RGB_ADD)
     return result
 
-
 class Hornet:
     """Player character with movement, combat, and platforming."""
     
     def __init__(self, x, y, screen_width, screen_height):
-        """Create Hornet at the given position on a screen of the given size."""
+        """
+        Create Hornet at the given position on a screen of the given size.
+        Args:
+            x (int): The x-coordinate of Hornet's initial position.
+            y (int): The y-coordinate of Hornet's initial position.
+            screen_width (int): The width of the screen.
+            screen_height (int): The height of the screen.
+        """
         # Load and scale player image
         image_path = resolve_image_path("hornet.webp")
         self.image = pygame.image.load(image_path).convert_alpha()
@@ -39,22 +51,24 @@ class Hornet:
         self.rect = self.image.get_rect()
         self.rect.midbottom = (x, y)
         # Narrower foot rect width used only for ground landing detection.
-        self._ground_foot_width = max(4, self.rect.width - 200)
-        
+        self._ground_foot_width = max(4, self.rect.width - 200)  # Narrow foot rect for landing detection
+
         # Movement attributes
         self.velocity_x = 0
         self.velocity_y = 0
-        self.speed = 300  # Horizontal movement speed (pixels per second)
-        self.jump_power = -750  # Max jump velocity (negative is up)
-        self.jump_initial_impulse = -800  # Small upward kick on first frame
-        self.jump_sustain_accel = -2800  # Upward acceleration while SPACE held
-        self.jump_max_hold_time = 0.18  # Max seconds SPACE adds upward force
+        self.speed = 300                  # px/s horizontal
+        # [5] baraltech
+        self.jump_power = -750            # Max jump velocity (negative = up)
+        self.jump_initial_impulse = -800  # Upward kick on first jump frame
+        self.jump_sustain_accel = -2800   # Extra upward force while SPACE held
+        self.jump_max_hold_time = 0.18    # Max seconds SPACE adds upward force
         self._jump_hold_timer = 0.0
-        self.jump_cut_multiplier = 0.05  # Velocity multiplied when jump released early
-        self.gravity = 1800  # Gravity acceleration (pixels per second squared)
+        self.jump_cut_multiplier = 0.05   # Velocity scale when jump released early
+        self.gravity = 1800               # px/s² downward acceleration
         self.on_ground = False
         self._jump_held = False  # Whether jump key is currently held
         self._jumping = False  # True while in a jump that can still be cut short
+        # [10] github copilot
         self._rebound_available = False  # Set when a down-attack hits; cleared on landing or release
         self.knockback_velocity_x = 0.0
         self.knockback_strength = 520.0
@@ -70,11 +84,12 @@ class Hornet:
         # Use full jump lift so repeated wall jumps climb quickly.
         self.wall_jump_power_y = self.jump_power
         self.wall_slide_speed = 400.0
-        # Acceleration rate during wall slide: reaches wall_slide_speed over the 8-frame animation (8 * 0.06s = 0.48s)
-        self.wall_slide_acceleration = self.wall_slide_speed / 0.48  # ~250 px/s²
+        # Reaches wall_slide_speed over ~8 frames (0.48 s)
+        self.wall_slide_acceleration = self.wall_slide_speed / 0.48
         self._wall_jump_timer = 0.0
         self._wall_jump_cooldown = 0.08
 
+        # [19] github copilot
         # Ledge climb
         self.is_mantle_clinging = False
         self.is_mantle_canceling = False
@@ -108,7 +123,7 @@ class Hornet:
         self.audio_manager = AudioManager()
         self._footstep_timer = 0.0
         self._footstep_interval = 0.28
-        self._wall_land_played = False  # guard: play wall_land only once per wall contact
+        self._wall_land_played = False  # Play wall_land once per wall contact
 
         # Initialize bench (main.py anchors it to world ground collider)
         self.bench = Bench(screen_width // 2, y)
@@ -150,7 +165,7 @@ class Hornet:
         self.max_silk = 9
         self.silk = 0
 
-        # Input cooldowns to prevent SFX spam from held keys
+        # Input cooldowns
         self.attack_cooldown = 0.18
         self.dash_cooldown = 0.22
         self.special_cooldown = 0.45
@@ -161,14 +176,14 @@ class Hornet:
         self._attack_key_down = False
         self._heal_key_down = False
 
-        # Cached static instruction text surfaces.
+        # Cached instruction text surfaces
         self._instruction_line_surfaces = None
 
-        # Reduced combat hurtbox (separate from physics rect and attack hitbox).
+        # Reduced combat hurtbox
         self.hitbox_inset_x = 0.28
         self.hitbox_inset_y = 0.18
 
-        # Dedicated attack hitbox state
+        # Attack hitbox state
         self.attack_range = 70
         self.attack_height_padding = 25
         self.attack_hitbox_duration = 0.12
@@ -542,14 +557,12 @@ class Hornet:
     def _repeat_tail_frames(self, animation, base_frame_count, total_frame_count, tail_repeat_count, flip_x=False):
         """
         Pad an animation to total_frame_count by repeating the last tail_repeat_count frames.
-
         Args:
             animation: Animation object to extract base frames from.
             base_frame_count (int): Number of frames to extract from the sheet.
             total_frame_count (int): Desired total frame count after padding.
             tail_repeat_count (int): Number of tail frames to cycle.
             flip_x (bool): Whether to flip frames horizontally.
-
         Returns:
             list: Frame list padded to total_frame_count.
         """
@@ -581,7 +594,7 @@ class Hornet:
         return frames
 
     def _load_hornet_animation(self):
-        """Load Hornet combat and state animations from spritesheets."""
+        """Load all Hornet combat and state animations from spritesheets."""
         self.attack_1_anim.add_animation("right", row=0, start_col=0, num_frames=5, speed=0.024, loop=False)
         self.attack_1_anim.add_animation("left", row=0, start_col=0, num_frames=5, speed=0.024, flip_x=True, loop=False)
         self.attack_2_anim.add_animation("right", row=0, start_col=0, num_frames=5, speed=0.024, loop=False)
@@ -666,7 +679,13 @@ class Hornet:
         self.mantle_vault_anim.add_animation("left", row=0, start_col=0, num_frames=4, speed=0.05, flip_x=True, loop=False)
 
     def _hud_frame_count_for_sheet(self, animation):
-        """Return the number of frames in the first row of a HUD spritesheet."""
+        """
+        Return the number of frames in the first row of a HUD spritesheet.
+        Args:
+            animation: Animation object whose spritesheet is measured.
+        Returns:
+            int: Number of frames in the first row.
+        """
         sheet = animation._get_sprite_sheet()
         usable_width = max(0, sheet.get_width() - (animation.margin * 2))
         frame_span = animation.frame_width + animation.spacing
@@ -675,7 +694,14 @@ class Hornet:
         return max(1, (usable_width + animation.spacing) // frame_span)
 
     def _add_hud_row_animation(self, animation, name, speed=0.06, loop=False):
-        """Add a one-row animation using every frame available in the sheet."""
+        """
+        Add a one-row animation using every frame available in the sheet.
+        Args:
+            animation: Animation object to configure.
+            name (str): Animation key to register.
+            speed (float): Seconds per frame.
+            loop (bool): Whether the animation should loop.
+        """
         frame_count = self._hud_frame_count_for_sheet(animation)
         animation.add_animation(name, row=0, start_col=0, num_frames=frame_count, speed=speed, loop=loop)
 
@@ -764,12 +790,12 @@ class Hornet:
         )
 
     def trigger_hud_flash(self):
-        """Public trigger for one-shot HUD flash (e.g. button touch)."""
+        """Trigger a one-shot HUD flash animation (e.g. on button touch)."""
         self.hud_flash_active = True
         self.hud_flash_anim.set_animation("play", reset=True)
 
     def _trigger_hud_enter_game(self):
-        """Trigger HUD intro animations used on entering gameplay/save state."""
+        """Play HUD intro animations when entering gameplay or a save state."""
         self.hud_frame_appear_active = False
         self.hud_frame_appear_pending = True
         self.hud_health_appear_active = True
@@ -785,7 +811,11 @@ class Hornet:
             self.hud_bind_orb_active = False
 
     def _update_hud_animations(self, dt):
-        """Advance active HUD animations and handle one-shot completion behavior."""
+        """
+        Advance all active HUD animations and handle one-shot completion.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         if self.hud_flash_active:
             self.hud_flash_anim.update(dt)
             if self.hud_flash_anim.is_finished():
@@ -844,7 +874,7 @@ class Hornet:
                 self.hud_show_spool_sprite = True
 
     def _sync_hud_resource_triggers(self):
-        """Trigger HUD animations based on changes in health and silk resources."""
+        """Fire HUD animations whenever health or silk values change."""
         if self.health < self._hud_prev_health:
             self.hud_health_break_active = True
             self.hud_health_break_anim.set_animation("play", reset=True)
@@ -891,7 +921,15 @@ class Hornet:
         self._hud_prev_silk = self.silk
 
     def _draw_hud_animation(self, screen, animation, anchor_x, anchor_y, offset_key):
-        """Draw a HUD animation centered at anchor plus its configured offset."""
+        """
+        Draw a HUD animation centered at an anchor point with its configured offset.
+        Args:
+            screen (pygame.Surface): Target surface to draw onto.
+            animation: Animation object to draw.
+            anchor_x (int): Center x anchor in screen coordinates.
+            anchor_y (int): Center y anchor in screen coordinates.
+            offset_key (str): Key into hud_animation_offsets for the positional offset.
+        """
         frame = animation.get_current_frame()
         if frame is None:
             return
@@ -935,7 +973,7 @@ class Hornet:
         return self._animation_name_for_facing()
 
     def _start_forward_attack_animation(self):
-        """Alternate between attack_1 and attack_2 and activate the forward attack animation."""
+        """Alternate between attack_1 and attack_2 variants and activate the forward attack animation."""
         self._locked_attack_anim_name = self._animation_name_for_facing()
         self.forward_attack_variant = 2 if self.forward_attack_variant == 1 else 1
         if self.forward_attack_variant == 1:
@@ -951,7 +989,7 @@ class Hornet:
         self.active_attack_animation.set_animation(self._locked_attack_anim_name, reset=True)
 
     def _start_down_attack_animation(self):
-        """Activate the downward attack animation."""
+        """Activate the downward (dive) attack animation."""
         self._locked_attack_anim_name = self._animation_name_for_facing()
         self.active_attack_animation = self.attack_down_anim
         self.active_attack_effect_animation = self.attack_down_effect_anim
@@ -992,8 +1030,7 @@ class Hornet:
 
         self.active_attack_animation.update(dt)
 
-        # Once the attack animation finishes, clear it so pose (e.g. fall) can show immediately.
-        # The attack hitbox timer runs independently and handles hitbox cleanup.
+        # Clear finished attack so pose (fall, idle, etc.) shows immediately
         if self.active_attack_animation.is_finished():
             self._clear_attack_animations()
             return
@@ -1069,7 +1106,7 @@ class Hornet:
         self.active_pose_effect_animation = None
 
     def _start_charged_effect(self):
-        """Activate the charged needle effect animation."""
+        """Activate the charged needle visual effect animation."""
         self.charged_effect_active = True
         self.charged_effect_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
@@ -1079,7 +1116,7 @@ class Hornet:
         self.jump_effect_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
     def _start_rebound_effect(self):
-        """Activate the rebound effect animation."""
+        """Activate the rebound visual effect animation."""
         self.rebound_effect_active = True
         self.rebound_effect_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
@@ -1090,7 +1127,7 @@ class Hornet:
         self.hit_flash_anim.set_animation(self._animation_name_for_facing(), reset=True)
 
     def _start_death_animation(self):
-        """Begin the death sequence, stop all movement, and clear active animations."""
+        """Begin the death sequence, stop all movement, and clear all active animations."""
         if self.is_dead:
             return
         self.is_dead = True
@@ -1194,7 +1231,7 @@ class Hornet:
         self._mantle_cling_min_timer = 0.08
 
     def _start_mantle_vault(self):
-        """Begin climbing over a ledge from the cling state."""
+        """Begin vaulting over a ledge from the cling state."""
         self.is_mantle_clinging = False
         self.is_mantle_canceling = False
         self.is_climbing_ledge = True
@@ -1205,7 +1242,7 @@ class Hornet:
         self._mantle_cling_world_bottom = None
 
     def _start_mantle_cancel(self):
-        """Cancel a ledge cling by jumping off the ledge."""
+        """Cancel a ledge cling by jumping off the wall."""
         self.is_mantle_clinging = False
         self.is_climbing_ledge = False
         self.is_mantle_canceling = False
@@ -1240,7 +1277,7 @@ class Hornet:
         self._start_rebound_effect()
 
     def _start_recoil(self):
-        """Activate recoil state on a non-fatal hit."""
+        """Activate recoil knockback state on a non-fatal hit."""
         self.recoil_active = True
         self.active_rebound_key = None
         self.rebound_land_active = False
@@ -1423,7 +1460,14 @@ class Hornet:
                 self.hit_flash_active = False
     
     def handle_input(self, keys, dt=0.016):
-        """Handle keyboard input for movement and return camera velocity."""
+        """
+        Process keyboard input and return camera velocity for the current frame.
+        Args:
+            keys: Pygame key state from pygame.key.get_pressed().
+            dt (float): Elapsed time in seconds since the last frame.
+        Returns:
+            list: [horizontal, vertical] camera velocity.
+        """
         # Horizontal movement (returns velocity for camera)
         self._attack_triggered = False
         self._pressing_down = keys[pygame.K_s]
@@ -1596,22 +1640,6 @@ class Hornet:
             except Exception:
                 pass
         self._attack_key_down = attack_pressed
-
-        # Dash
-        if keys[pygame.K_k] and self._dash_timer <= 0.0:
-            self._dash_timer = self.dash_cooldown
-            try:
-                self.audio_manager.play_sfx("hornet_dash")
-            except Exception:
-                pass  # Skip if sound doesn't exist
-
-        # Special
-        if keys[pygame.K_h] and self._special_timer <= 0.0:
-            self._special_timer = self.special_cooldown
-            try:
-                self.audio_manager.play_sfx("hornet_special")
-            except Exception:
-                pass  # Skip if sound doesn't exist
         
         # Do not let vertical attack inputs, horizontal movement, or jumping drive camera panning.
         directional_attack_active = self._attack_timer > 0.0 and self.attack_hitbox_direction in ("up", "down")
@@ -1642,13 +1670,23 @@ class Hornet:
         return self._camera_velocity
 
     def consume_attack_trigger(self):
-        """Return True if attack was triggered this frame, then reset."""
+        """
+        Return True if an attack was triggered this frame, then reset the flag.
+        Returns:
+            bool: True if attack was triggered, False otherwise.
+        """
         attack_pressed = self._attack_triggered
         self._attack_triggered = False
         return attack_pressed
 
     def _build_attack_hitbox(self, world_rect):
-        """Build an attack hitbox based on direction and world-space position."""
+        """
+        Build and return an attack hitbox in world space for the current attack direction.
+        Args:
+            world_rect (pygame.Rect): Hornet's bounding rect in world coordinates.
+        Returns:
+            pygame.Rect: Attack hitbox in world coordinates.
+        """
         base_height = max(10, world_rect.height - self.attack_height_padding * 2)
 
         if self.attack_hitbox_direction == "up":
@@ -1677,7 +1715,14 @@ class Hornet:
         return pygame.Rect(int(hitbox_left), int(hitbox_top), int(self.attack_range), int(base_height))
 
     def start_attack_hitbox(self, camera_x=0, camera_y=0):
-        """Activate the attack hitbox in world coordinates."""
+        """
+        Activate the attack hitbox in world coordinates and return it.
+        Args:
+            camera_x (float): Current camera x offset.
+            camera_y (float): Current camera y offset.
+        Returns:
+            pygame.Rect: A copy of the activated attack hitbox.
+        """
         world_rect = self.rect.copy()
         world_rect.x += int(camera_x)
         world_rect.y += int(camera_y)
@@ -1693,7 +1738,11 @@ class Hornet:
         return self.attack_hitbox.copy()
 
     def apply_attack_recoil_on_hit(self, enemy_rect=None):
-        """Apply recoil knockback once per swing when hitting an enemy."""
+        """
+        Apply recoil knockback once per swing on a successful hit.
+        Args:
+            enemy_rect (pygame.Rect | None): Enemy rect in world space used to position the hit flash.
+        """
         if self.attack_recoil_applied:
             return
         facing_direction = 1 if self.attack_hitbox_facing_right else -1
@@ -1707,21 +1756,28 @@ class Hornet:
         self.trigger_hud_flash()
 
     def gain_silk(self, amount):
-        """Add silk, clamped to the maximum."""
+        """
+        Add silk up to the maximum and trigger HUD updates.
+        Args:
+            amount (int): Amount of silk to add.
+        """
         if amount <= 0:
             return
         prev_silk = self.silk
         self.silk = min(self.max_silk, self.silk + amount)
         if self.silk > prev_silk:
-            if self.silk >= self.max_silk:
-                try:
-                    self.audio_manager.play_sfx("hornet_bind_ready")
-                except Exception:
-                    pass
+            try:
+                self.audio_manager.play_sfx("hornet_bind_ready")
+            except Exception:
+                pass
         self._sync_hud_resource_triggers()
 
     def start_heal_channel(self):
-        """Begin the heal channel only when the silk bar is full."""
+        """
+        Begin the heal channel when the silk bar is full.
+        Returns:
+            bool: True if healing started, False if conditions were not met.
+        """
         if self.is_healing or self.is_dead:
             return False
         if self.silk < self.max_silk:
@@ -1750,7 +1806,7 @@ class Hornet:
         return True
 
     def cancel_heal_channel(self):
-        """Cancel the current heal channel if active."""
+        """Cancel the active heal channel and reset all heal state."""
         if self.is_healing:
             try:
                 self.audio_manager.play_sfx("hornet_bind_break")
@@ -1763,7 +1819,7 @@ class Hornet:
         self.white_fade_duration = 0.0
 
     def start_rest(self):
-        """Sit on a bench, fully heal, and pause movement."""
+        """Sit on a bench, fully restore health, and halt all movement."""
         self.cancel_heal_channel()
         self.is_resting = True
         self.is_getting_off_bench = False
@@ -1778,7 +1834,11 @@ class Hornet:
             pass
 
     def start_stun(self, duration=2.0):
-        """Temporarily prevent Hornet from moving or attacking."""
+        """
+        Stun Hornet for the given duration, preventing movement and attacks.
+        Args:
+            duration (float): Stun duration in seconds.
+        """
         if duration <= 0:
             return
         self.cancel_heal_channel()
@@ -1795,7 +1855,7 @@ class Hornet:
         self.look_hold_timer = 0.0
 
     def heal(self):
-        """Restore health when the heal channel completes."""
+        """Restore health when the heal channel completes and play finish effects."""
         if self.health < self.max_health:
             self.health = min(self.health + self.heal_amount, self.max_health)
             self._start_charged_effect()
@@ -1929,7 +1989,14 @@ class Hornet:
             self._draw_hud_animation(screen, self.hud_soul_burst_anim, silk_center_x, silk_center_y, "soul_burst")
 
     def get_world_hitbox(self, camera_x=0, camera_y=0):
-        """Return a reduced world-space hurtbox used for enemy damage checks."""
+        """
+        Return a reduced world-space hurtbox used for enemy damage checks.
+        Args:
+            camera_x (float): Current camera x offset.
+            camera_y (float): Current camera y offset.
+        Returns:
+            pygame.Rect: Inset world-space hurtbox.
+        """
         world_rect = self.rect.copy()
         world_rect.x += int(camera_x)
         world_rect.y += int(camera_y)
@@ -1948,7 +2015,12 @@ class Hornet:
         return hitbox
 
     def take_damage(self, damage, knockback_direction=0):
-        """Apply damage and knockback to the player."""
+        """
+        Apply damage and directional knockback to Hornet.
+        Args:
+            damage (int): Amount of damage to deal.
+            knockback_direction (int): -1 for left knockback, 1 for right, 0 for none.
+        """
         if damage <= 0 or self.is_dead:
             return
         if self.is_healing:
@@ -1987,7 +2059,14 @@ class Hornet:
             self.rect.x += 28
 
     def rebound_from_down_attack(self, enemy_rect=None, camera_y=0):
-        """Bounce Hornet upward after a successful down-attack hit."""
+        """
+        Bounce Hornet upward after a successful down-attack hit.
+        Args:
+            enemy_rect (pygame.Rect | None): Enemy rect used to reposition Hornet above the target.
+            camera_y (float): Current camera y offset.
+        Returns:
+            bool: True if the rebound was applied, False otherwise.
+        """
         if self.attack_hitbox_direction != "down" or self.on_ground:
             return False
 
@@ -2016,7 +2095,15 @@ class Hornet:
         return True
     
     def update(self, dt, collision_rects=None, camera_x=0, camera_y=0, move_horizontally=False):
-        """Update player physics, collisions, and timers."""
+        """
+        Advance Hornet's physics, collisions, timers, and animations.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+            collision_rects (list | None): World-space collider rects to test against.
+            camera_x (float): Current camera x offset.
+            camera_y (float): Current camera y offset.
+            move_horizontally (bool): When True Hornet's rect moves; otherwise the camera moves.
+        """
         self.landed_this_frame = False
         self.was_on_ground = self.on_ground
         horizontal_displacement = 0.0
@@ -2054,7 +2141,7 @@ class Hornet:
 
         self._update_attack_animations(dt)
 
-        # Complete channel heal after 1 seconds if uninterrupted
+        # Finish heal after channel duration if uninterrupted
         if self.is_healing:
             self.heal_channel_timer -= dt
             if self.heal_channel_timer <= 0.0:
@@ -2063,16 +2150,13 @@ class Hornet:
                 self.heal_in_air = False
                 self.heal()
         
-        # Update look hold timer and camera look offset
+        # Camera look pan
         if self.look_direction != 0:
             self.look_hold_timer += dt
             if self.look_hold_timer >= self.look_hold_threshold:
-                # Pan the camera in the look direction
                 self.camera_look_y += self.look_direction * self.look_speed * dt
-                # Clamp to max distance
                 self.camera_look_y = max(-self.max_look_distance, min(self.max_look_distance, self.camera_look_y))
         else:
-            # Smoothly return camera to center when not looking
             if abs(self.camera_look_y) > 1.0:
                 self.camera_look_y *= 0.85  # Ease back to center
             else:
@@ -2082,7 +2166,7 @@ class Hornet:
         self.camera_x_correction = 0.0
 
         if self.is_climbing_ledge:
-            # Ledge climb animation: move toward the cached landing point.
+            # Move toward the cached landing point each frame
             self.ledge_climb_timer -= dt
             target_world_bottom = self._ledge_target_world_y
             target_world_x = self._ledge_target_world_x
@@ -2117,7 +2201,7 @@ class Hornet:
             if self._mantle_cling_min_timer > 0.0:
                 self._mantle_cling_min_timer = max(0.0, self._mantle_cling_min_timer - dt)
         else:
-            # Determine if Hornet was on a wall last frame (touching_wall flags still reflect previous frame here)
+            # Was Hornet on a wall last frame? (touching_wall flags still reflect previous frame here)
             _on_wall_prev = (
                 not self.on_ground
                 and (self.touching_wall_left or self.touching_wall_right)
@@ -2174,6 +2258,16 @@ class Hornet:
                             if landing_top is None or ground_rect.top < landing_top:
                                 landing_top = ground_rect.top
 
+                    # Recovery snap: catch sub-pixel gaps from int() truncation
+                    if landing_top is None:
+                        for ground_rect in collision_rects:
+                            if foot_right <= ground_rect.left or foot_left >= ground_rect.right:
+                                continue
+                            dist = ground_rect.top - world_rect.bottom  # + = above floor, - = inside
+                            if -4 <= dist <= 2:
+                                if landing_top is None or ground_rect.top < landing_top:
+                                    landing_top = ground_rect.top
+
                 if landing_top is not None:
                     world_rect.bottom = int(landing_top)
                     self.rect.y = int(world_rect.y - camera_y)
@@ -2213,35 +2307,73 @@ class Hornet:
                 world_rect.x += int(camera_x)
                 world_rect.y += int(camera_y)
 
+                # Track pre-move position to detect high-speed tunnelling through thin walls
+                if move_horizontally:
+                    _prev_wl = world_rect.left - int(frame_horizontal_displacement)
+                else:
+                    # Follow-cam: camera_x was advanced by (vel+knockback+recoil)*dt
+                    # in main.py before update() is called.  Post-decay values differ
+                    # by decay*dt² (< 0.5 px) — fine for a crossing check.
+                    _h_cam_delta = (self.velocity_x + self.knockback_velocity_x + self.attack_recoil_velocity_x) * dt
+                    _prev_wl = world_rect.left - int(_h_cam_delta)
+                _prev_wr = _prev_wl + world_rect.width
+
                 for cr in collision_rects:
                     if cr.width > 5000:
                         continue
-                    if not world_rect.colliderect(cr):
-                        continue
-                    if world_rect.bottom <= cr.top + 4:
-                        continue
-
-                    overlap_right = world_rect.right - cr.left
-                    overlap_left = cr.right - world_rect.left
-                    overlap_bottom = world_rect.bottom - cr.top
-                    overlap_top = cr.bottom - world_rect.top
-
-                    min_h = min(overlap_right, overlap_left)
-                    min_v = min(overlap_bottom, overlap_top)
-
-                    if min_h >= min_v:
-                        continue
 
                     correction_x = 0
-                    if overlap_right < overlap_left:
-                        correction_x = -overlap_right
-                        self.touching_wall_right = True
+                    is_wall_type = cr.height > cr.width
+
+                    if world_rect.colliderect(cr):
+                        # [18] github copilot
+                        # Standard overlap resolution
+                        if world_rect.bottom <= cr.top + 4:
+                            continue
+
+                        overlap_right = world_rect.right - cr.left
+                        overlap_left = cr.right - world_rect.left
+                        overlap_bottom = world_rect.bottom - cr.top
+                        overlap_top = cr.bottom - world_rect.top
+
+                        min_h = min(overlap_right, overlap_left)
+                        min_v = min(overlap_bottom, overlap_top)
+
+                        # Let vertical snap handle shallow horizontal overlaps on floors;
+                        # always resolve horizontally for wall-type colliders.
+                        if not is_wall_type and min_h >= min_v:
+                            continue
+
+                        if overlap_right < overlap_left:
+                            correction_x = -overlap_right
+                            self.touching_wall_right = True
+                        else:
+                            correction_x = overlap_left
+                            self.touching_wall_left = True
+
+                    elif is_wall_type:
+                        # No overlap — check whether Hornet tunnelled through this
+                        # wall face in the current frame (swept-collision test).
+                        _vert_ok = world_rect.bottom > cr.top + 4 and world_rect.top < cr.bottom
+                        if not _vert_ok:
+                            continue
+                        if _prev_wr <= cr.left and world_rect.right > cr.left:
+                            # Swept rightward through the wall's left face
+                            correction_x = cr.left - world_rect.right
+                            self.touching_wall_right = True
+                        elif _prev_wl >= cr.right and world_rect.left < cr.right:
+                            # Swept leftward through the wall's right face
+                            correction_x = cr.right - world_rect.left
+                            self.touching_wall_left = True
+                        else:
+                            continue
                     else:
-                        correction_x = overlap_left
-                        self.touching_wall_left = True
+                        continue
 
                     self.camera_x_correction += correction_x
                     world_rect.x += int(correction_x)
+                    _prev_wl += int(correction_x)
+                    _prev_wr += int(correction_x)
                     horizontal_displacement += correction_x
 
                     if self.is_down_attacking:
@@ -2250,8 +2382,7 @@ class Hornet:
 
                 resolved_world_rect = world_rect.copy()
 
-            # Kill horizontal velocity/knockback into any wall that was resolved this frame.
-            # This prevents tunnelling through thin walls after a wall jump in a corner.
+            # Kill velocity into walls resolved this frame to prevent corner tunnelling
             if self.touching_wall_right:
                 self.knockback_velocity_x = min(0.0, self.knockback_velocity_x)
                 self.attack_recoil_velocity_x = min(0.0, self.attack_recoil_velocity_x)
@@ -2261,9 +2392,7 @@ class Hornet:
                 self.attack_recoil_velocity_x = max(0.0, self.attack_recoil_velocity_x)
                 self.velocity_x = max(0.0, self.velocity_x)
 
-            # Recovery snap: if the wall correction pushed Hornet horizontally
-            # onto a floor she slipped past (landing check runs before wall
-            # correction), snap her to the surface so she doesn't clip through.
+            # Snap to floor if wall correction pushed Hornet onto a surface she slipped past
             if resolved_world_rect is not None and self.velocity_y >= 0:
                 snap_foot_left = resolved_world_rect.centerx - self._ground_foot_width // 2
                 snap_foot_right = snap_foot_left + self._ground_foot_width
@@ -2389,7 +2518,7 @@ class Hornet:
         self._update_pose_animations(dt)
 
         if self.attack_hitbox_timer > 0.0:
-            # Keep active attack hitbox attached to Hornet in world-space.
+            # Keep hitbox attached to Hornet each frame
             world_rect = self.rect.copy()
             world_rect.x += int(camera_x)
             world_rect.y += int(camera_y)
@@ -2401,7 +2530,7 @@ class Hornet:
                 self.attack_hit_mossgrub = False
                 self.attack_hit_mossmother = False
                 self._clear_attack_animations()
-                # Re-run pose selection so draw() never sees a frame with no animation
+                # Re-run pose selection so draw() always has a valid animation
                 self._update_pose_animations(0)
         
         # Prevent falling off screen top
@@ -2413,7 +2542,11 @@ class Hornet:
             self.health = 0
     
     def _get_sprite_white_intensity(self):
-        """Return 0-255 white overlay intensity for the current frame."""
+        """
+        Return the white overlay intensity for the current frame.
+        Returns:
+            int: White overlay intensity (0–255).
+        """
         intensity = 0
         if self.hit_white_timer > 0.0:
             intensity = int(255 * self.hit_white_timer / 0.12)
@@ -2424,7 +2557,15 @@ class Hornet:
         return intensity
 
     def draw(self, screen, look_y_offset=0, screen_offset=(0, 0), camera_x=0, camera_y=0):
-        """Draw Hornet on screen with the given vertical look offset."""
+        """
+        Draw Hornet and all active visual effects onto screen.
+        Args:
+            screen (pygame.Surface): Target surface to draw onto.
+            look_y_offset (float): Vertical camera look offset in pixels.
+            screen_offset (tuple): (x, y) pixel offset applied to the draw position.
+            camera_x (float): Camera x offset, used to position world-space hit flashes.
+            camera_y (float): Camera y offset, used to position world-space hit flashes.
+        """
         draw_rect = self.rect.copy()
         draw_rect.x += int(screen_offset[0])
         draw_rect.y += int(look_y_offset + screen_offset[1])
@@ -2582,8 +2723,10 @@ class Hornet:
                     screen.blit(hit_flash_frame, hit_flash_rect)
 
     def draw_hud(self, screen):
-        """Draw HUD elements at fixed screen positions (health, silk, instructions).
-        Always draws at absolute screen coordinates regardless of any zoom or camera.
+        """
+        Draw HUD elements (health, silk, instructions) at fixed screen positions.
+        Args:
+            screen (pygame.Surface): Target surface to draw onto.
         """
         instructions_draw_x = 10
         instructions_draw_y = config.game_height - 550
@@ -2604,10 +2747,10 @@ class Hornet:
 
     def reset_position(self, x, y):
         """
-        Reset Hornet to the given position and clear all movement/combat state.
-        args:
-            x (int): The x-coordinate of the new position.
-            y (int): The y-coordinate of the new position.
+        Teleport Hornet to (x, y) and clear all movement and combat state.
+        Args:
+            x (int): World x coordinate.
+            y (int): World y coordinate (bottom of Hornet's rect).
         """
         self.rect.midbottom = (x, y)
         self.velocity_x = 0

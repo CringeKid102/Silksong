@@ -232,7 +232,9 @@ class SaveFile:
     """Manages saving and loading game state across four save slots."""
 
     def __init__(self):
-        # Define the 4 save slots
+        """
+        Initialize save slot UI, load slot status, and set up buttons and images.
+        """
         self.save_slots = {
             1: user_data_file("save_1.json"),
             2: user_data_file("save_2.json"),
@@ -300,7 +302,15 @@ class SaveFile:
         self.borders = self._load_and_scale_image(borders_path, 377, 669)
 
     def _load_and_scale_image(self, image_path, width, height):
-        """Load an image and scale it to the given dimensions."""
+        """
+        Load an image and scale it to the given dimensions.
+        Args:
+            image_path (str): Filesystem path to the image.
+            width (int): Target width in pixels.
+            height (int): Target height in pixels.
+        Returns:
+            pygame.Surface: Scaled surface, or a grey placeholder if the file is missing.
+        """
         if os.path.exists(image_path):
             image = pygame.image.load(image_path).convert_alpha()
             return pygame.transform.scale(image, (width, height))
@@ -311,7 +321,11 @@ class SaveFile:
             return surface
 
     def create_game_file(self, slot=1):
-        """Create a new save file with default state in the given slot."""
+        """
+        Create a new save file with default state in the given slot.
+        Args:
+            slot (int): Save slot number (1–4).
+        """
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return
@@ -339,8 +353,14 @@ class SaveFile:
         except IOError as e:
             print(f"An error occurred while creating the game file: {e}")
 
+    # [4] scriptline studios
     def save_game_file(self, game_state, slot=1):
-        """Write the game state dictionary to the given save slot."""
+        """
+        Write the game state dictionary to the given save slot.
+        Args:
+            game_state (dict): Game state data to persist.
+            slot (int): Save slot number (1–4).
+        """
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return
@@ -354,8 +374,15 @@ class SaveFile:
         except IOError as e:
             print(f"An error occurred while saving the game state: {e}")
     
+    # [4] scriptline studios
     def load_game_file(self, slot=1):
-        """Load and return the game state from the given save slot, or None on failure."""
+        """
+        Load and return the game state from the given save slot.
+        Args:
+            slot (int): Save slot number (1–4).
+        Returns:
+            dict | None: Loaded game state, or None on failure or missing file.
+        """
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return None
@@ -383,7 +410,11 @@ class SaveFile:
             return None
     
     def delete_game_file(self, slot=1):
-        """Delete the save file for the given slot."""
+        """
+        Delete the save file for the given slot.
+        Args:
+            slot (int): Save slot number (1–4).
+        """
         if slot not in self.save_slots:
             print(f"Invalid slot number. Please use 1, 2, 3, or 4.")
             return
@@ -416,7 +447,13 @@ class SaveFile:
                 self.slot_status_cache[slot_num] = None
 
     def handle_event(self, pos):
-        """Handle a mouse click on the save file screen. Returns an action string or None."""
+        """
+        Handle a mouse click on the save file screen.
+        Args:
+            pos (tuple[int, int]): Mouse position in screen coordinates.
+        Returns:
+            str | None: Action string (e.g. 'delete_1', 'load_2') or None.
+        """
         # Check trash buttons first (they have priority)
         for slot_num in [1, 2, 3, 4]:
             if self.trash_buttons[slot_num].is_clicked(pos):

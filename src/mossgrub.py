@@ -9,7 +9,14 @@ import config
 _white_overlay_cache: dict = {}
 
 def _apply_white_overlay(surface, intensity):
-    """Return a copy of surface blended with white at the given intensity (0-255)."""
+    """
+    Return a copy of surface blended with white at the given intensity.
+    Args:
+        surface (pygame.Surface): Source surface to blend.
+        intensity (int): White blend amount (0–255).
+    Returns:
+        pygame.Surface: New surface with white overlay applied.
+    """
     result = surface.copy()
     size = surface.get_size()
     white_layer = _white_overlay_cache.get(size)
@@ -21,11 +28,19 @@ def _apply_white_overlay(surface, intensity):
     return result
 
 
+# [6] kenny yip coding
 class MossGrub:
     """Basic patrol enemy that walks back and forth."""
     
     def __init__(self, x, y, screen_width, screen_height):
-        """Create a MossGrub at the given position."""
+        """
+        Create a MossGrub at the given position.
+        Args:
+            x (int): Horizontal spawn position (midbottom x) in screen pixels.
+            y (int): Vertical spawn position (midbottom y) in screen pixels.
+            screen_width (int): Logical screen width used for boundary checks.
+            screen_height (int): Logical screen height used for boundary checks.
+        """
         image_path = resolve_image_path("spritesheet/enemy/mossgrub.png")
         frame_width = 128
         frame_height = 101
@@ -111,7 +126,12 @@ class MossGrub:
         self.animation.add_animation("death_land_left", row=1, start_col=4, num_frames=3, flip_x=True, speed=0.1, loop=False)
 
     def _set_animation(self, name, reset=False):
-        """Switch to the named animation only if it differs from the current one."""
+        """
+        Switch to the named animation only if it differs from the current one.
+        Args:
+            name (str): Animation key to activate.
+            reset (bool): If True, restart from the first frame.
+        """
         if self.current_animation_name != name or reset:
             self.current_animation_name = name
             self.animation.set_animation(name, reset=True)
@@ -187,7 +207,12 @@ class MossGrub:
         self._advance_animation(dt)
 
     def take_damage(self, damage, knockback_direction=0):
-        """Apply damage and knockback to the mossgrub."""
+        """
+        Apply damage and knockback to the mossgrub.
+        Args:
+            damage (int): Amount of health to remove.
+            knockback_direction (int): -1 for left knockback, 1 for right, 0 for none.
+        """
         if damage <= 0:
             return
         else:
@@ -218,7 +243,18 @@ class MossGrub:
                     pass
 
     def update(self, min_x, max_x, dt, collision_rects=None, camera_x=0, camera_y=0, camera_dx=0, camera_dy=0):
-        """Update position, physics, and patrol movement."""
+        """
+        Update position, physics, and patrol movement.
+        Args:
+            min_x (int): Left patrol boundary in screen pixels.
+            max_x (int): Right patrol boundary in screen pixels.
+            dt (float): Elapsed time in seconds since the last frame.
+            collision_rects (list | None): World-space collision rects for landing/wall resolution.
+            camera_x (float): Horizontal camera offset for world-to-screen conversion.
+            camera_y (float): Vertical camera offset for world-to-screen conversion.
+            camera_dx (float): Camera movement since last frame (x) to compensate rect position.
+            camera_dy (float): Camera movement since last frame (y) to compensate rect position.
+        """
         # Compensate for camera movement so mossgrub stays at its world position.
         self.rect.x -= int(camera_dx)
         self.rect.y -= int(camera_dy)
@@ -389,7 +425,14 @@ class MossGrub:
         return self.animation_draw_offsets.get(self.current_animation_name, self.animation_draw_offsets.get("default", (0, 0)))
 
     def get_draw_rect(self, look_y_offset=0, screen_offset=(0, 0)):
-        """Return the final draw rect after camera/look/screen offset tuning."""
+        """
+        Return the final draw rect after camera/look/screen offset tuning.
+        Args:
+            look_y_offset (float): Vertical look-ahead offset in pixels.
+            screen_offset (tuple[float, float]): Screen shake (x, y) offset.
+        Returns:
+            pygame.Rect: Adjusted rect for blitting the sprite.
+        """
         draw_rect = self.rect.copy()
         draw_rect.x += int(screen_offset[0])
         draw_rect.y += int(look_y_offset + screen_offset[1])
@@ -399,12 +442,23 @@ class MossGrub:
         return draw_rect
 
     def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
-        """Draw the mossgrub on screen."""
+        """
+        Draw the mossgrub on screen.
+        Args:
+            screen (pygame.Surface): Target surface.
+            look_y_offset (float): Vertical look-ahead offset in pixels.
+            screen_offset (tuple[float, float]): Screen shake (x, y) offset.
+        """
         draw_surf = _apply_white_overlay(self.image, int(255 * self.hit_white_timer / 0.12)) if self.hit_white_timer > 0.0 else self.image
         screen.blit(draw_surf, self.get_draw_rect(look_y_offset=look_y_offset, screen_offset=screen_offset))
     
     def reset_position(self, x, y):
-        """Reset the mossgrub to the given spawn position."""
+        """
+        Reset the mossgrub to the given spawn position.
+        Args:
+            x (int): Horizontal spawn position (midbottom x) in screen pixels.
+            y (int): Vertical spawn position (midbottom y) in screen pixels.
+        """
         self.rect.midbottom = (x, y)
         self.velocity_x = 0
         self.velocity_y = 0

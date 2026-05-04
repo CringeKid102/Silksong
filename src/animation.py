@@ -5,6 +5,7 @@ from typing import Callable, List, Optional, Tuple, Dict
 class Animation:
     """Spritesheet-based animation player with lazy frame loading and per-frame duration support."""
 
+    # [15] github copilot
     _sprite_sheet_cache: Dict[str, pygame.Surface] = {}
 
     def __init__(
@@ -16,7 +17,16 @@ class Animation:
             margin: int = 0,
             spacing: int = 0
         ):
-        """Initialize the animation handler with a spritesheet."""
+        """
+        Initialize the animation handler with a spritesheet.
+        Args:
+            sprite_sheet_path (str): Path to the spritesheet image file.
+            frame_width (int): Pixel width of a single frame.
+            frame_height (int): Pixel height of a single frame.
+            scale (float): Uniform scale factor applied to each extracted frame.
+            margin (int): Pixel margin around the spritesheet edge before frames begin.
+            spacing (int): Pixel gap between adjacent frames.
+        """
         if not os.path.exists(sprite_sheet_path):
             raise FileNotFoundError(f"Sprite sheet not found: {sprite_sheet_path}")
         self.sprite_sheet_path = os.path.normpath(sprite_sheet_path)
@@ -38,11 +48,16 @@ class Animation:
         self.pingpong = False
         self.reverse = False
         
+        # [15] github copilot
         # Cache for extracted frames to avoid re-blitting repeatedly
         self._frame_cache: Dict[Tuple[int, int, bool, float], pygame.Surface] = {}
 
     def _get_sprite_sheet(self) -> pygame.Surface:
-        """Load the spritesheet from disk or return the cached copy."""
+        """
+        Load the spritesheet from disk or return the cached copy.
+        Returns:
+            pygame.Surface: The loaded (and cached) spritesheet surface.
+        """
         cached_sheet = self._sprite_sheet_cache.get(self.sprite_sheet_path)
         if cached_sheet is None:
             cached_sheet = pygame.image.load(self.sprite_sheet_path).convert_alpha()
@@ -51,7 +66,15 @@ class Animation:
         return cached_sheet
 
     def _extract_frame_surface(self, col: int, row: int, flip_x: bool) -> pygame.Surface:
-        """Extract and cache a single frame surface from the spritesheet."""
+        """
+        Extract and cache a single frame surface from the spritesheet.
+        Args:
+            col (int): Zero-based column index of the frame.
+            row (int): Zero-based row index of the frame.
+            flip_x (bool): Whether to mirror the frame horizontally.
+        Returns:
+            pygame.Surface: The extracted (and optionally flipped/scaled) frame surface.
+        """
         key = (col, row, flip_x, self.scale)
         if key in self._frame_cache:
             return self._frame_cache[key]
@@ -83,7 +106,16 @@ class Animation:
         return frame_surf
 
     def extract_frames(self, row: int, start_col: int, num_frames: int, flip_x: bool = False) -> List[pygame.Surface]:
-        """Extract a sequence of frames from a row in the spritesheet."""
+        """
+        Extract a sequence of frames from a row in the spritesheet.
+        Args:
+            row (int): Zero-based row index.
+            start_col (int): Zero-based column to begin extraction from.
+            num_frames (int): Number of consecutive frames to extract.
+            flip_x (bool): Whether to mirror each frame horizontally.
+        Returns:
+            List[pygame.Surface]: Extracted frame surfaces.
+        """
         frames: List[pygame.Surface] = []
         for i in range(num_frames):
             col = start_col + i
@@ -105,7 +137,21 @@ class Animation:
             loop: bool = True,
             pingpong: bool = False
         ):
-        """Register a named animation from frames or spritesheet coordinates."""
+        """
+        Register a named animation from explicit frames or spritesheet coordinates.
+        Args:
+            name (str): Unique animation key.
+            frames: Pre-extracted surfaces, a callable that returns surfaces, or None to use row/num_frames.
+            row (int | None): Spritesheet row; required when frames is None.
+            start_col (int): Starting column within the row.
+            num_frames (int): Number of frames to extract; required when frames is None.
+            flip_x (bool): Mirror each frame horizontally.
+            speed (float): Default seconds-per-frame duration.
+            durations (List[float] | None): Per-frame durations overriding speed.
+            frame_count (int | None): Required when frames is callable.
+            loop (bool): Whether the animation loops.
+            pingpong (bool): Whether the animation reverses at the end.
+        """
         frames_factory = None
         resolved_frames = None
 
@@ -139,7 +185,13 @@ class Animation:
         }
 
     def _ensure_animation_loaded(self, name: str):
-        """Lazily extract frames for an animation the first time it is used."""
+        """
+        Lazily extract frames for an animation the first time it is used.
+        Args:
+            name (str): Animation key to load.
+        Returns:
+            dict: The animation data dict with frames populated.
+        """
         anim = self.animations[name]
         if anim['frames'] is not None:
             return anim
@@ -157,12 +209,24 @@ class Animation:
         return anim
 
     def get_animation_frame_count(self, name: str) -> int:
-        """Return the number of frames in the named animation."""
+        """
+        Return the number of frames in the named animation.
+        Args:
+            name (str): Animation key.
+        Returns:
+            int: Frame count.
+        """
         anim = self._ensure_animation_loaded(name)
         return len(anim['frames'])
         
     def set_animation(self, name: str, reset: bool = True, reverse: bool = False):
-        """Switch to a named animation, optionally resetting playback."""
+        """
+        Switch to a named animation, optionally resetting playback.
+        Args:
+            name (str): Animation key to activate.
+            reset (bool): If True, restart from the first frame.
+            reverse (bool): If True, play the animation backwards.
+        """
         if name not in self.animations:
             raise KeyError(f"Animation not found: {name}")
         if name != self.current_animation or reset:
@@ -176,7 +240,11 @@ class Animation:
             self.pingpong = anim.get('pingpong', False)
 
     def update(self, dt: float):
-        """Advance animation playback by dt seconds."""
+        """
+        Advance animation playback by dt seconds.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         if not self.playing or self.current_animation is None or self.finished:
             return
 
@@ -232,7 +300,11 @@ class Animation:
             break
 
     def get_current_frame(self) -> Optional[pygame.Surface]:
-        """Return the current frame surface, or None if no animation is set."""
+        """
+        Return the current frame surface.
+        Returns:
+            pygame.Surface | None: Current frame, or None if no animation is active.
+        """
         if self.current_animation is None:
             return None
         anim = self._ensure_animation_loaded(self.current_animation)
@@ -242,7 +314,14 @@ class Animation:
         return anim['frames'][idx]
     
     def draw(self, surface: pygame.Surface, x: int, y: int, anchor: str = 'topleft'):
-        """Draw the current frame at the given position on the surface."""
+        """
+        Draw the current frame at the given position on the surface.
+        Args:
+            surface (pygame.Surface): Target surface to draw onto.
+            x (int): Horizontal position in pixels.
+            y (int): Vertical position in pixels.
+            anchor (str): Alignment anchor; 'topleft' or 'center'.
+        """
         frame = self.get_current_frame()
         if frame is None:
             return
@@ -275,7 +354,11 @@ class Animation:
         return self.finished
 
     def set_scale(self, scale: float):
-        """Set a new scale factor, clearing the frame cache."""
+        """
+        Set a new scale factor and clear the frame cache to force re-extraction.
+        Args:
+            scale (float): New uniform scale factor (must be > 0).
+        """
         if scale <= 0:
             raise ValueError("Scale must be a positive number.")
         if scale != self.scale:

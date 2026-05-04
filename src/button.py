@@ -7,7 +7,16 @@ class Button:
     """Animated menu button with hover and press pointer animations."""
 
     def __init__(self, x: int, y: int, text: str, color: Tuple[int,int,int], font_path: Optional[str] = None, font_size: int = 32):
-        """Create a button with animated pointer indicators."""
+        """
+        Create a button with animated pointer indicators.
+        Args:
+            x (int): Horizontal center position in pixels.
+            y (int): Vertical center position in pixels.
+            text (str): Label text to display.
+            color (tuple[int, int, int]): RGB color for the label.
+            font_path (str | None): Path to the font file; uses pygame default when None.
+            font_size (int): Font size in points.
+        """
         self.x = x
         self.y = y
         self._text = text
@@ -100,7 +109,11 @@ class Button:
         screen.blit(right_pointer, right_rect)
     
     def update(self, dt: float):
-        """Update hover state and pointer animation."""
+        """
+        Update hover state and pointer animation.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         
         # Update pointer animation based on state (use cached rect)
         mouse_pos = pygame.mouse.get_pos()
@@ -156,7 +169,11 @@ class Button:
         self.press_timer = self.press_duration
     
     def set_cooldown(self, cooldown_time: float):
-        """Set the button cooldown duration in seconds."""
+        """
+        Set the button cooldown duration in seconds.
+        Args:
+            cooldown_time (float): Duration in seconds before the button can be clicked again.
+        """
         self.cooldown = cooldown_time
         self.max_cooldown = cooldown_time
     

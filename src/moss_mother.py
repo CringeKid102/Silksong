@@ -10,7 +10,14 @@ import config
 _white_overlay_cache: dict = {}
 
 def _apply_white_overlay(surface, intensity):
-    """Return a copy of surface blended with white at the given intensity (0-255)."""
+    """
+    Return a copy of surface blended with white at the given intensity.
+    Args:
+        surface (pygame.Surface): Source surface to blend.
+        intensity (int): White blend amount (0–255).
+    Returns:
+        pygame.Surface: New surface with white overlay applied.
+    """
     result = surface.copy()
     size = surface.get_size()
     white_layer = _white_overlay_cache.get(size)
@@ -30,7 +37,14 @@ class MossMother:
     ANIMATION_SCALE = 0.45
 
     def __init__(self, x, y, screen_width, screen_height):
-        """Create the Moss Mother boss at the given position."""
+        """
+        Create the Moss Mother boss at the given position.
+        Args:
+            x (int): Horizontal spawn position (midbottom x) in screen pixels.
+            y (int): Vertical spawn position (midbottom y) in screen pixels.
+            screen_width (int): Logical screen width used for boundary checks.
+            screen_height (int): Logical screen height used for boundary checks.
+        """
         image_path = resolve_image_path("spritesheet/enemy/moss_mother.png")
         self.animation = Animation(
             image_path,
@@ -160,6 +174,13 @@ class MossMother:
         self.hitbox_inset_y = 0.18
         self._load_death_part_images()
 
+        # Egg: shown at arena spawn point while waiting to emerge
+        self.egg_image = None
+        self._load_egg_image()
+        self.showing_egg = False
+        self._egg_break_triggered = False
+        self._egg_spawn_world = (0, 0)
+
         # Audio
         self.audio_manager = AudioManager()
         self._scream_timer = random.uniform(5.0, 12.0)
@@ -218,6 +239,18 @@ class MossMother:
             )
             self.death_part_images.append(pygame.transform.smoothscale(part_image, scaled_size))
 
+    def _load_egg_image(self):
+        """Load and scale the moss mother egg sprite."""
+        try:
+            raw = pygame.image.load(resolve_image_path("sprite/moss_mother_egg.png")).convert_alpha()
+            scale = self.ANIMATION_SCALE * config.ENEMY_SCALE_MULTIPLIER
+            w, h = raw.get_size()
+            self.egg_image = pygame.transform.smoothscale(
+                raw, (max(1, int(w * scale)), max(1, int(h * scale)))
+            )
+        except Exception:
+            self.egg_image = None
+
     def _start_death_sequence(self):
         """Start death roar and prepare split pieces."""
         self.is_dying = True
@@ -251,7 +284,11 @@ class MossMother:
             pass
 
     def consume_death_roar_trigger(self):
-        """Return True once when death roar starts (for Hornet roar-lock trigger)."""
+        """
+        Return True once when death roar starts, for the Hornet roar-lock trigger.
+        Returns:
+            bool: True on the first call after the death roar begins.
+        """
         triggered = self._death_roar_triggered
         self._death_roar_triggered = False
         return triggered
@@ -277,7 +314,14 @@ class MossMother:
             })
 
     def _update_death_parts(self, dt, collision_rects, camera_x=0, camera_y=0):
-        """Apply gravity/collision to split death parts until all settle on ground."""
+        """
+        Apply gravity and collision to split death parts until all settle on ground.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+            collision_rects (list): World-space collision rects for landing.
+            camera_x (float): Horizontal camera offset for world-to-screen conversion.
+            camera_y (float): Vertical camera offset for world-to-screen conversion.
+        """
         if not self.death_parts:
             return
 
@@ -319,7 +363,12 @@ class MossMother:
         self.death_sequence_complete = all(part["landed"] for part in self.death_parts)
 
     def _set_animation(self, name, reset=False):
-        """Switch to the named animation only if it differs from the current one."""
+        """
+        Switch to the named animation only if it differs from the current one.
+        Args:
+            name (str): Animation key to activate.
+            reset (bool): If True, restart from the first frame.
+        """
         if self.current_animation_name != name or reset:
             self.current_animation_name = name
             self.animation.set_animation(name, reset=True)
@@ -425,14 +474,26 @@ class MossMother:
         return world_x, world_y
 
     def _get_arena_spawn_point(self, arena_rect):
-        """Return the idle spawn position at the top-middle of the arena."""
+        """
+        Return the idle spawn position at the top-middle of the arena.
+        Args:
+            arena_rect (pygame.Rect): The arena bounding rectangle.
+        Returns:
+            tuple[int, int]: Screen (x, y) for the boss center.
+        """
         return (
             int(arena_rect.centerx),
             int(arena_rect.top + self.rect.height // 2 + self.spawn_top_padding),
         )
 
     def _get_attack_lane_points(self, arena_rect):
-        """Return the side and floor lane positions used for the arena sweep attack."""
+        """
+        Return the side and floor lane positions used for the arena sweep attack.
+        Args:
+            arena_rect (pygame.Rect): The arena bounding rectangle.
+        Returns:
+            tuple[int, int, int, int]: (left_x, right_x, middle_y, floor_y) in screen pixels.
+        """
         edge_padding = max(self.rect.width // 2 + 24, self.attack_lane_margin)
         left_x = int(arena_rect.left + edge_padding)
         right_x = int(arena_rect.right - edge_padding)
@@ -441,12 +502,23 @@ class MossMother:
         return left_x, right_x, middle_y, floor_y
 
     def _set_world_center(self, world_x, world_y, camera_x=0, camera_y=0):
-        """Place the boss using world coordinates while keeping its rect in screen space."""
+        """
+        Place the boss using world coordinates while keeping its rect in screen space.
+        Args:
+            world_x (float): World x-coordinate for the boss center.
+            world_y (float): World y-coordinate for the boss center.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+        """
         self.rect.centerx = int(world_x - camera_x)
         self.rect.centery = int(world_y - camera_y)
 
     def start_cry_attack(self):
-        """Begin the cry attack and emit a one-shot trigger for the game to handle hazards."""
+        """
+        Begin the cry attack and emit a one-shot trigger for the game to handle hazards.
+        Returns:
+            bool: True if the attack started, False if already attacking or crying.
+        """
         if self.is_crying or self.is_attacking:
             return False
         self.is_crying = True
@@ -458,19 +530,61 @@ class MossMother:
         self.attack_contact_registered = False
         self.phase_through = False
         try:
-            self.audio_manager.play_sfx("boss_wall_hit")
+            self.audio_manager.play_sfx("moss_mother_scream")
         except Exception:
             pass
         return True
 
     def consume_cry_attack_trigger(self):
-        """Return True once when the cry attack begins."""
+        """
+        Return True once when the cry attack begins, then reset.
+        Returns:
+            bool: True on the first call after a cry attack starts.
+        """
         triggered = self._cry_attack_triggered
         self._cry_attack_triggered = False
         return triggered
 
+    def consume_egg_break_trigger(self):
+        """
+        Return the egg world (x, y) center once when the egg breaks, then reset.
+        Returns:
+            tuple[int, int] | None: World coordinates of the egg center, or None if not triggered.
+        """
+        if self._egg_break_triggered:
+            self._egg_break_triggered = False
+            return self._egg_spawn_world
+        return None
+
+    def play_ceiling_dash(self):
+        """Play the ceiling dash sound effect."""
+        try:
+            self.audio_manager.play_sfx("moss_mother_ceiling_dash")
+        except Exception:
+            pass
+
+    def play_ceiling_hit(self):
+        """Play the ceiling impact sound effect."""
+        try:
+            self.audio_manager.play_sfx("moss_mother_ceiling_hit")
+        except Exception:
+            pass
+
+    def play_egg_break(self):
+        """Play the egg break sound effect."""
+        try:
+            self.audio_manager.play_sfx("moss_mother_egg_break")
+        except Exception:
+            pass
+
     def _resolve_horizontal_collisions(self, collision_rects, camera_x=0, camera_y=0):
-        """Push the boss out of any wall colliders it overlaps horizontally."""
+        """
+        Push the boss out of any wall colliders it overlaps horizontally.
+        Args:
+            collision_rects (list[pygame.Rect]): Solid collision rectangles.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+        """
         if not collision_rects:
             return
 
@@ -508,7 +622,13 @@ class MossMother:
             self.rect.x = int(world_rect.x - camera_x)
 
     def _resolve_vertical_collisions(self, collision_rects, camera_x=0, camera_y=0):
-        """Handle floor landing and ceiling collisions for stagger fall physics."""
+        """
+        Handle floor landing and ceiling collisions for stagger fall physics.
+        Args:
+            collision_rects (list[pygame.Rect]): Solid collision rectangles.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+        """
         if not collision_rects:
             return
 
@@ -613,7 +733,14 @@ class MossMother:
         return next_world
 
     def _start_curve_attack(self, player_world_rect, arena_rect, camera_x=0, camera_y=0):
-        """Start a three-part arena sweep: half-parabola down, floor dash, then vertical rise."""
+        """
+        Start a three-part arena sweep: half-parabola down, floor dash, then vertical rise.
+        Args:
+            player_world_rect (pygame.Rect): Player's world-space rect for targeting.
+            arena_rect (pygame.Rect): Boss arena bounds.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+        """
         if arena_rect is None:
             return
 
@@ -646,8 +773,18 @@ class MossMother:
 
         # Begin the attack already aligned at the nearest edge-middle point.
         self._set_world_center(self.attack_start[0], self.attack_start[1], camera_x=camera_x, camera_y=camera_y)
+        try:
+            self.audio_manager.play_sfx("moss_mother_attack")
+            self.audio_manager.play_sfx_random(["moss_mother_attack_scream_1", "moss_mother_attack_scream_2"])
+        except Exception:
+            pass
+
     def _end_attack(self, player_world_rect):
-        """End the current attack and set up a smooth reposition toward the opposite side."""
+        """
+        End the current attack and set up a smooth reposition toward the opposite side.
+        Args:
+            player_world_rect (pygame.Rect | None): Player's world-space rect for reposition targeting.
+        """
         self.is_attacking = False
         self.attack_elapsed = 0.0
         self.attack_timer = 0.0
@@ -670,19 +807,21 @@ class MossMother:
         self.attack_contact_registered = False
 
     def _update_curve_attack(self, dt, player_world_rect=None, camera_x=0, camera_y=0, collision_rects=None, arena_rect=None):
-        """Advance the three-part sweep: half-parabola down, horizontal floor run, then vertical rise."""
+        """
+        Advance the three-part sweep: half-parabola down, horizontal floor run, then vertical rise.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+            player_world_rect (pygame.Rect | None): Player's world-space rect.
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+            collision_rects (list | None): Solid collision rectangles.
+            arena_rect (pygame.Rect | None): Boss arena bounds.
+        """
         if arena_rect is None:
             self.is_attacking = False
             return
 
         self.attack_phase_time += dt
-
-        def register_contact_once():
-            if player_world_rect and not self.attack_contact_registered:
-                world_hitbox = self.get_world_hitbox(camera_x=camera_x, camera_y=camera_y)
-                if world_hitbox.colliderect(player_world_rect):
-                    self.attack_contact_registered = True
-                    self.phase_through = True
 
         if self.attack_step == 0:
             # Part 1: half open-up parabola from edge-middle down to the arena floor lane.
@@ -693,7 +832,6 @@ class MossMother:
             y = my - (my - sy) * ((1.0 - t) ** 2)
             self._set_world_center(x, y, camera_x=camera_x, camera_y=camera_y)
             self.facing_right = mx >= sx
-            register_contact_once()
 
             if t >= 1.0:
                 self.attack_step = 1
@@ -710,7 +848,6 @@ class MossMother:
             y = my
             self._set_world_center(x, y, camera_x=camera_x, camera_y=camera_y)
             self.facing_right = ex >= mx
-            register_contact_once()
 
             if t >= 1.0:
                 self.attack_step = 2
@@ -727,7 +864,6 @@ class MossMother:
             y = ey + (ry - ey) * t
             self._set_world_center(x, y, camera_x=camera_x, camera_y=camera_y)
             self.facing_right = rx >= self.attack_start[0]
-            register_contact_once()
 
             if t >= 1.0:
                 self.attack_burst_count += 1
@@ -902,6 +1038,10 @@ class MossMother:
 
         self.hit_white_timer = 0.12
         self.health = max(0, self.health - damage)
+        try:
+            self.audio_manager.play_sfx("hornet_silkcharge")
+        except Exception:
+            pass
 
         if self.health <= 0:
             self._start_death_sequence()
@@ -920,7 +1060,7 @@ class MossMother:
             self.stagger_recovery_timer = self.stagger_recovery_time
             self.stagger_count += 1
             try:
-                self.audio_manager.play_sfx("boss_stun")
+                self.audio_manager.play_sfx("moss_mother_stun")
             except Exception:
                 pass
 
@@ -953,6 +1093,8 @@ class MossMother:
         self.is_engaged = False
         self.spawn_delay_timer = 0.0
         self.has_spawned_in_arena = False
+        self.showing_egg = False
+        self._egg_break_triggered = False
         self.is_crying = False
         self.cry_timer = 0.0
         self.cry_cooldown_timer = 0.0
@@ -1050,9 +1192,15 @@ class MossMother:
 
         if arena_rect is not None and not self.is_engaged:
             if player_in_arena and not self.has_spawned_in_arena:
+                # Show egg at the spawn point as soon as Hornet enters
+                if not self.showing_egg:
+                    egg_x, egg_y = self._get_arena_spawn_point(arena_rect)
+                    self._egg_spawn_world = (egg_x, egg_y)
+                    self.showing_egg = True
                 self.spawn_delay_timer += dt
             elif not player_in_arena and not self.has_spawned_in_arena:
                 self.spawn_delay_timer = 0.0
+                self.showing_egg = False
 
             if not self.has_spawned_in_arena:
                 if self.spawn_delay_timer < self.spawn_delay:
@@ -1062,6 +1210,10 @@ class MossMother:
                 self.velocity_x = 0.0
                 self.velocity_y = 0.0
                 self.on_ground = False
+                # Egg breaks: hide egg, trigger burst effect, play sound
+                self.showing_egg = False
+                self._egg_break_triggered = True
+                self.play_egg_break()
                 self.has_spawned_in_arena = True
 
             if not player_in_arena:
@@ -1164,7 +1316,14 @@ class MossMother:
         return self.animation_draw_offsets.get(self.current_animation_name, self.animation_draw_offsets.get("default", (0, 0)))
 
     def get_world_hitbox(self, camera_x=0, camera_y=0):
-        """Return a reduced world-space hitbox used for combat interactions."""
+        """
+        Return a reduced world-space hitbox used for combat interactions.
+        Args:
+            camera_x (float): Horizontal camera offset.
+            camera_y (float): Vertical camera offset.
+        Returns:
+            pygame.Rect: Inset world-space hitbox rectangle.
+        """
         world_rect = self.rect.copy()
         world_rect.x += int(camera_x)
         world_rect.y += int(camera_y)
@@ -1180,7 +1339,14 @@ class MossMother:
         return hitbox
 
     def get_draw_rect(self, look_y_offset=0, screen_offset=(0, 0)):
-        """Return the final draw rect after camera/look/screen offset tuning."""
+        """
+        Return the final draw rect after camera/look/screen offset tuning.
+        Args:
+            look_y_offset (float): Vertical look-ahead offset in pixels.
+            screen_offset (tuple[float, float]): Screen shake (x, y) offset.
+        Returns:
+            pygame.Rect: Adjusted rect for blitting the sprite.
+        """
         draw_rect = self.rect.copy()
         draw_rect.x += int(screen_offset[0])
         draw_rect.y += int(look_y_offset + screen_offset[1])
@@ -1190,7 +1356,16 @@ class MossMother:
         return draw_rect
 
     def draw(self, screen, look_y_offset=0, screen_offset=(0, 0)):
-        """Draw the boss sprite on screen, offset by the vertical look pan."""
+        """
+        Draw the boss sprite on screen, offset by the vertical look pan.
+        Args:
+            screen (pygame.Surface): Target surface.
+            look_y_offset (float): Vertical look-ahead offset in pixels.
+            screen_offset (tuple[float, float]): Screen shake (x, y) offset.
+        """
+        if self.showing_egg:
+            return  # egg is drawn by main.py; mossmother not yet visible
+
         if self.is_dying and not self.death_body_visible:
             for part in self.death_parts:
                 draw_rect = part["rect"].copy()

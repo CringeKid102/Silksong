@@ -13,6 +13,7 @@ except ImportError:
     cv2 = None
 
 class TransitionType(Enum):
+    """Enumeration of available screen transition types."""
     FADE_COLOR = "fade_color"
     FADE_VIDEO = "fade_video"
     FADE_IMAGE = "fade_image"
@@ -26,13 +27,22 @@ class TransitionType(Enum):
     CIRCLE_CONTRACT = "circle_contract"
 
 class TransitionManager:
+    """Manages animated screen transitions (fade, slide, circle, and wipe)."""
     def __init__(self, 
                  screen_width: int, 
                  screen_height: int, 
                  default_speed: float, 
                  video_speed_multiplier: float = 1.0, 
                  video_loop: bool = True):
-        """Create a transition manager for fade, slide, circle, and wipe effects."""
+        """
+        Create a transition manager for fade, slide, circle, and wipe effects.
+        Args:
+            screen_width (int): Logical screen width in pixels.
+            screen_height (int): Logical screen height in pixels.
+            default_speed (float): Default transition speed in seconds.
+            video_speed_multiplier (float): Frame-skip multiplier for video transitions.
+            video_loop (bool): Whether video content loops when it ends.
+        """
         self.width = screen_width
         self.height = screen_height
         self.default_speed = default_speed
@@ -77,7 +87,19 @@ class TransitionManager:
                      state_change_callback: Optional[Callable] = None,
                      easing: str = "linear",
                      **kwargs) -> bool:
-        """Start a new screen transition. Returns False if one is already active."""
+        """
+        Start a new screen transition.
+        Args:
+            target_state: Value passed to state_change_callback at the midpoint.
+            transition_type (TransitionType): Type of transition to play.
+            speed (float | None): Duration in seconds; defaults to default_speed.
+            completion_callback (Callable | None): Called when the transition finishes.
+            state_change_callback (Callable | None): Called at the midpoint with target_state.
+            easing (str): Easing function name: 'linear', 'ease_in', 'ease_out', 'ease_in_out'.
+            **kwargs: Additional per-type options (color, video_path, image_path, etc.).
+        Returns:
+            bool: False if a transition is already active, True otherwise.
+        """
         if self.active:
             return False  # Transition already in progress
         
@@ -117,7 +139,13 @@ class TransitionManager:
         return self._configure_content(**kwargs)
     
     def _configure_content(self, **kwargs) -> bool:
-        """Set up content surfaces based on the transition type."""
+        """
+        Set up content surfaces and parameters for the current transition type.
+        Args:
+            **kwargs: Per-type options (color, video_path, image_path, center, etc.).
+        Returns:
+            bool: True on success, False if required resources are missing.
+        """
         try:
             if self.transition_type == TransitionType.FADE_COLOR:
                 self.fade_color = kwargs.get("color", (0, 0, 0))
@@ -175,7 +203,13 @@ class TransitionManager:
             return False
     
     def update(self, dt: float):
-        """Advance the transition by dt seconds and trigger callbacks at phase boundaries."""
+        """
+        Advance the transition by dt seconds and trigger callbacks at phase boundaries.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        Returns:
+            dict: State dict with keys active, state_changed, completed, phase, progress.
+        """
         result = {
             "active": self.active,
             "state_changed": False,
@@ -261,7 +295,12 @@ class TransitionManager:
             self.complete_callback()
     
     def draw(self, surface: pygame.Surface, alpha_override: Optional[float] = None):
-        """Draw the transition overlay on the given surface."""
+        """
+        Draw the transition overlay on the given surface.
+        Args:
+            surface (pygame.Surface): Target surface to draw onto.
+            alpha_override (float | None): Manual 0–1 alpha; overrides eased progress when set.
+        """
         if not self.active:
             return
 
@@ -280,7 +319,12 @@ class TransitionManager:
         self._draw_transition(surface, alpha)
     
     def _draw_transition(self, surface: pygame.Surface, alpha: float):
-        """Dispatch to the correct draw method for the active transition type."""
+        """
+        Dispatch to the correct draw method for the active transition type.
+        Args:
+            surface (pygame.Surface): Target surface.
+            alpha (float): Current alpha value (0–255).
+        """
         if alpha <= 0:
             return
 
@@ -304,7 +348,12 @@ class TransitionManager:
             self._draw_wipe(surface, alpha)
         
     def _draw_color_fade(self, surface: pygame.Surface, alpha: float):
-        """Draw a solid color fade overlay."""
+        """
+        Draw a solid color fade overlay.
+        Args:
+            surface (pygame.Surface): Target surface.
+            alpha (float): Overlay opacity (0–255).
+        """
         # Create or reuse cached overlay
         if not self._overlay_cache:
             self._overlay_cache = pygame.Surface((self.width, self.height))
@@ -314,21 +363,36 @@ class TransitionManager:
         surface.blit(self._overlay_cache, (0, 0))
     
     def _draw_video_fade(self, surface: pygame.Surface, alpha: float):
-        """Draw a video frame with alpha blending."""
+        """
+        Draw a video frame with alpha blending.
+        Args:
+            surface (pygame.Surface): Target surface.
+            alpha (float): Frame opacity (0–255).
+        """
         if self.current_frame:
             video_surface = self.current_frame.copy()
             video_surface.set_alpha(alpha)
             surface.blit(video_surface, (0, 0))
     
     def _draw_image_fade(self, surface: pygame.Surface, alpha: float):
-        """Draw an image with alpha blending."""
+        """
+        Draw an image with alpha blending.
+        Args:
+            surface (pygame.Surface): Target surface.
+            alpha (float): Image opacity (0–255).
+        """
         if self.image_surface:
             image_surface = self.image_surface.copy()
             image_surface.set_alpha(alpha)
             surface.blit(image_surface, (0, 0))
     
     def _draw_slide(self, surface: pygame.Surface, alpha: float):
-        """Draw a directional slide transition."""
+        """
+        Draw a directional slide transition.
+        Args:
+            surface (pygame.Surface): Target surface.
+            alpha (float): Unused; slide is positional, not alpha-based.
+        """
         slide_progress = self.easing_function(self.progress)
         
         # Calculate position based on transition type
@@ -350,7 +414,12 @@ class TransitionManager:
             surface.blit(self._overlay_cache, (x, y))
     
     def _draw_circle(self, surface: pygame.Surface, alpha: float):
-        """Draw a circle expand or contract transition."""
+        """
+        Draw a circle expand or contract transition.
+        Args:
+            surface (pygame.Surface): Target surface.
+            alpha (float): Mask opacity (0–255).
+        """
         circle_progress = self.easing_function(self.progress)
 
         if self.transition_type == TransitionType.CIRCLE_EXPAND:
@@ -375,7 +444,12 @@ class TransitionManager:
         surface.blit(mask, (0, 0))
     
     def _draw_wipe(self, surface: pygame.Surface, alpha: float):
-        """Draw a horizontal wipe transition."""
+        """
+        Draw a horizontal wipe transition.
+        Args:
+            surface (pygame.Surface): Target surface.
+            alpha (float): Wipe overlay opacity (0–255).
+        """
         wipe_progress = self.easing_function(self.progress)
         width = int(self.width * wipe_progress)
         
@@ -396,17 +470,45 @@ class TransitionManager:
 
     # EASING FUNCTIONS
     def _linear_ease(self, t: float) -> float:
+        """
+        Linear easing: progress is unchanged.
+        Args:
+            t (float): Normalized progress (0–1).
+        Returns:
+            float: Clamped value of t.
+        """
         return max(0.0, min(1.0, t))
 
     def _ease_in(self, t: float) -> float:
+        """
+        Quadratic ease-in: starts slow and accelerates.
+        Args:
+            t (float): Normalized progress (0–1).
+        Returns:
+            float: Eased value.
+        """
         t = max(0.0, min(1.0, t))
         return t * t
 
     def _ease_out(self, t: float) -> float:
+        """
+        Quadratic ease-out: starts fast and decelerates.
+        Args:
+            t (float): Normalized progress (0–1).
+        Returns:
+            float: Eased value.
+        """
         t = max(0.0, min(1.0, t))
         return 1 - (1 - t) * (1 - t)
 
     def _ease_in_out(self, t: float) -> float:
+        """
+        Quadratic ease-in-out: slow at both ends, fast in the middle.
+        Args:
+            t (float): Normalized progress (0–1).
+        Returns:
+            float: Eased value.
+        """
         t = max(0.0, min(1.0, t))
         return 2 * t * t if t < 0.5 else 1 - pow(-2 * t + 2, 2) / 2
     

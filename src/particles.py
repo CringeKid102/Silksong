@@ -5,8 +5,14 @@ import os
 from typing import List, Dict, Tuple
 
 class ParticleSystem:
+    """Particle system managing embers, sparks, smoke, gameplay world particles, and screen shake."""
     def __init__(self, screen_width=None, screen_height=None):
-        """Create the particle system for the given screen dimensions."""
+        """
+        Create the particle system for the given screen dimensions.
+        Args:
+            screen_width (int | None): Logical screen width in pixels.
+            screen_height (int | None): Logical screen height in pixels.
+        """
         self.particles: List[Dict] = []
         self.float_texts: List[Dict] = []
         # Screen shake
@@ -39,18 +45,33 @@ class ParticleSystem:
         self.coral_aspid_spawn_timer = 0.0
         self.coral_aspid_spawn_interval = 0.22
         self.max_gameplay_particles = 300
-        self.immediate_offscreen_cull = True
+        self.immediate_offscreen_cull = True  # [21] github copilot
         
     def load_ember_image(self, image_path):
-        """Load the standard ember particle image."""
+        """
+        Load the standard ember particle image.
+        Args:
+            image_path (str): Filesystem path to the ember image.
+        """
         self.ember_image = pygame.image.load(image_path).convert_alpha()
 
     def load_ember_round_image(self, image_path):
-        """Load the round background ember particle image."""
+        """
+        Load the round background ember particle image.
+        Args:
+            image_path (str): Filesystem path to the round ember image.
+        """
         self.ember_round_image = pygame.image.load(image_path).convert_alpha()
 
     def load_gameplay_particle_images(self, fung_mote_path, mossbone_small_path, coral_particle_path, aspid_particle_path):
-        """Load sprite assets used by gameplay particles."""
+        """
+        Load sprite assets used by gameplay world particles.
+        Args:
+            fung_mote_path (str): Path to the fung mote particle image.
+            mossbone_small_path (str): Path to the mossbone insect spritesheet.
+            coral_particle_path (str): Path to the coral particle image.
+            aspid_particle_path (str): Path to the aspid particle image.
+        """
         self.fung_mote_image = pygame.image.load(fung_mote_path).convert_alpha()
         self.coral_particle_image = pygame.image.load(coral_particle_path).convert_alpha()
         self.aspid_particle_image = pygame.image.load(aspid_particle_path).convert_alpha()
@@ -72,7 +93,14 @@ class ParticleSystem:
         return len(self.gameplay_particles) < self.max_gameplay_particles
 
     def spawn_fung_mote_death_burst(self, world_x, world_y, ground_y, count=None):
-        """Spawn a one-shot burst of fung motes that arc, fall, and disappear on ground hit."""
+        """
+        Spawn a one-shot burst of fung motes that arc, fall, and disappear on ground hit.
+        Args:
+            world_x (float): World x-coordinate of the burst origin.
+            world_y (float): World y-coordinate of the burst origin.
+            ground_y (float): World y-coordinate of the floor where motes vanish.
+            count (int | None): Number of motes to spawn; random if None.
+        """
         if self.fung_mote_image is None:
             return
 
@@ -148,7 +176,13 @@ class ParticleSystem:
         })
 
     def update_gameplay_particles(self, dt, camera_world_rect, ground_colliders=None):
-        """Advance world-space gameplay particles and maintain ambient spawners."""
+        """
+        Advance world-space gameplay particles and maintain ambient spawners.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+            camera_world_rect (pygame.Rect): Visible world area; used for cull and spawn bounds.
+            ground_colliders (list | None): Collision rects used for ground-landing logic.
+        """
         if camera_world_rect is None:
             return
 
@@ -233,7 +267,15 @@ class ParticleSystem:
         self.gameplay_particles = alive_particles
 
     def draw_gameplay_particles(self, surface: pygame.Surface, camera_x=0, camera_y=0, look_y_offset=0, screen_offset=(0, 0)):
-        """Draw world-space gameplay particles transformed into screen space."""
+        """
+        Draw world-space gameplay particles transformed into screen space.
+        Args:
+            surface (pygame.Surface): Target surface.
+            camera_x (float): Horizontal camera offset in pixels.
+            camera_y (float): Vertical camera offset in pixels.
+            look_y_offset (float): Additional vertical look-ahead offset.
+            screen_offset (tuple[float, float]): Screen shake (x, y) offset.
+        """
         if not self.gameplay_particles:
             return
 
@@ -277,8 +319,18 @@ class ParticleSystem:
             for _ in range(drop_count):
                 self._surface_cache.pop(next(iter(self._surface_cache)), None)
 
+    # [11] github copilot
     def _get_cached_ember_surface(self, img, size, angle, alpha):
-        """Return a cached, transformed ember image using quantized buckets."""
+        """
+        Return a cached, transformed ember image using quantized buckets to limit cache entries.
+        Args:
+            img (pygame.Surface): Source ember image.
+            size (float): Desired display size in pixels.
+            angle (float): Rotation angle in degrees.
+            alpha (int): Opacity (0–255).
+        Returns:
+            pygame.Surface: Scaled, rotated, and alpha-set surface.
+        """
         scale_factor = max(0.2, size / 3.0)
         scale_bucket = round(scale_factor * 4) / 4.0
         angle_bucket = int(round(angle / 5.0) * 5)
@@ -299,7 +351,14 @@ class ParticleSystem:
         return rotated_img
 
     def spawn_sparks(self, x: float, y: float, count: int = 12, color: Tuple[int,int,int]=(255,200,100)):
-        """Spawn burst spark particles at the given position."""
+        """
+        Spawn burst spark particles at the given position.
+        Args:
+            x (float): Horizontal spawn position in screen pixels.
+            y (float): Vertical spawn position in screen pixels.
+            count (int): Number of sparks to emit.
+            color (tuple[int, int, int]): RGB color of the sparks.
+        """
         MAX = 500
         available = max(0, MAX - len(self.particles))
         to_spawn = min(count, available)
@@ -321,7 +380,13 @@ class ParticleSystem:
             })
 
     def spawn_smoke(self, x: float, y: float, count: int = 10):
-        """Spawn rising smoke particles at the given position."""
+        """
+        Spawn rising smoke particles at the given position.
+        Args:
+            x (float): Horizontal spawn position in screen pixels.
+            y (float): Vertical spawn position in screen pixels.
+            count (int): Number of smoke puffs to emit.
+        """
         MAX = 500
         available = max(0, MAX - len(self.particles))
         to_spawn = min(count, available)
@@ -340,8 +405,16 @@ class ParticleSystem:
                 'type': 'smoke'
             })
 
+    # [9] github copilot
     def spawn_embers(self, x: float, y: float, count: int = 1, image=None):
-        """Spawn ember particles that float diagonally from bottom-left to top-right."""
+        """
+        Spawn ember particles that float diagonally from bottom-left to top-right.
+        Args:
+            x (float): Horizontal origin in screen pixels.
+            y (float): Vertical origin in screen pixels.
+            count (int): Number of embers to spawn.
+            image (pygame.Surface | None): Custom ember image; falls back to self.ember_image.
+        """
         MAX = 1000
         available = max(0, MAX - len(self.particles))
         to_spawn = min(count, available)
@@ -383,7 +456,14 @@ class ParticleSystem:
             })
 
     def spawn_round_embers(self, x: float, y: float, count: int = 1, image=None):
-        """Spawn round background embers with depth-based velocity and sway."""
+        """
+        Spawn round background embers with depth-based velocity and sway.
+        Args:
+            x (float): Horizontal origin in screen pixels.
+            y (float): Vertical origin in screen pixels.
+            count (int): Number of round embers to spawn.
+            image (pygame.Surface | None): Custom image; falls back to self.ember_round_image.
+        """
         img = image or self.ember_round_image
         MAX = 1000
         available = max(0, MAX - len(self.particles))
@@ -421,7 +501,13 @@ class ParticleSystem:
             })
 
     def add_detection_popup(self, delta: int, x: float, y: float):
-        """Add a floating damage or healing number popup."""
+        """
+        Add a floating damage or healing number popup.
+        Args:
+            delta (int): Value to display; positive for healing, negative for damage.
+            x (float): Horizontal spawn position in screen pixels.
+            y (float): Vertical spawn position in screen pixels.
+        """
         txt = f"{'+' if delta>0 else ''}{int(delta)}"
         col = (0,255,0) if delta > 0 else (255,0,0)
         self.float_texts.append({
@@ -436,7 +522,11 @@ class ParticleSystem:
         })
 
     def update(self, dt: float):
-        """Advance all particles, floating texts, screen shake, and auto-spawning."""
+        """
+        Advance all particles, floating texts, screen shake, and auto-spawning.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         # Update particles
         alive_particles = []
         screen_w = self.screen_width or 0
@@ -535,7 +625,13 @@ class ParticleSystem:
                 self.spawn_round_embers(spawn_x, spawn_y, count=spawn_count, image=self.ember_round_image)
 
     def draw_particles(self, surface: pygame.Surface, size_min=None, size_max=None):
-        """Draw particles to the surface, optionally filtered by size range."""
+        """
+        Draw particles to the surface, optionally filtered by size range.
+        Args:
+            surface (pygame.Surface): Target surface.
+            size_min (float | None): Skip particles smaller than this size.
+            size_max (float | None): Skip particles larger than this size.
+        """
         # Sort particles by size for depth effect (smaller = farther = behind, larger = closer = in front)
         self.particles.sort(key=lambda p: p.get('size', 0))
         
@@ -586,7 +682,12 @@ class ParticleSystem:
                 surface.blit(s, (int(p['x'])-r, int(p['y'])-r))
 
     def draw_float_texts(self, surface: pygame.Surface, font: pygame.font.Font):
-        """Draw floating text popups on the surface."""
+        """
+        Draw floating text popups on the surface.
+        Args:
+            surface (pygame.Surface): Target surface.
+            font (pygame.font.Font): Font used to render popup text.
+        """
         for ft in self.float_texts:
             txt_surf = font.render(ft['text'], True, ft['color'])
             txt_surf.set_alpha(ft.get('alpha', 255))
@@ -602,12 +703,21 @@ class ParticleSystem:
         self._surface_cache.clear()
     
     def start_shake(self, amount: float, duration: float):
-        """Start or boost a screen shake effect."""
+        """
+        Start or boost a screen shake effect.
+        Args:
+            amount (float): Maximum shake displacement in pixels.
+            duration (float): Shake duration in seconds.
+        """
         self.shake_amount = max(self.shake_amount, float(amount))
         self.shake_time = self.shake_duration = float(duration)
     
     def get_shake_offset(self):
-        """Return a random x, y offset based on the current shake intensity."""
+        """
+        Return a random x, y offset based on the current shake intensity.
+        Returns:
+            tuple[int, int]: Pixel offsets (ox, oy) to apply to the camera.
+        """
         if self.shake_amount <= 0:
             return 0, 0
         frac = (self.shake_time / max(0.0001, self.shake_duration)) if self.shake_duration > 0 else 0

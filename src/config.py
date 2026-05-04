@@ -38,7 +38,13 @@ title_font_path = assets_path("fonts", "TrajanPro-Regular.ttf")
 _font_cache = {}
 
 def get_font(size=None):
-    """Return the regular font at the given size, cached for reuse."""
+    """
+    Return the regular game font at the given size, cached for reuse.
+    Args:
+        size (int | None): Point size; defaults to 32.
+    Returns:
+        pygame.font.Font: Loaded font object.
+    """
     if size is None:
         size = 32
     key = ('font', size)
@@ -47,7 +53,13 @@ def get_font(size=None):
     return _font_cache[key]
 
 def get_title_font(size=None):
-    """Return the title font at the given size, cached for reuse."""
+    """
+    Return the title font at the given size, cached for reuse.
+    Args:
+        size (int | None): Point size; defaults to 48.
+    Returns:
+        pygame.font.Font: Loaded font object.
+    """
     if size is None:
         size = 48
     key = ('title_font', size)
@@ -56,7 +68,13 @@ def get_title_font(size=None):
     return _font_cache[key]
 
 def get_super_title_font(size=None):
-    """Return the large title font at the given size, cached for reuse."""
+    """
+    Return the large title font at the given size, cached for reuse.
+    Args:
+        size (int | None): Point size; defaults to 72.
+    Returns:
+        pygame.font.Font: Loaded font object.
+    """
     if size is None:
         size = 72
     key = ('super_title_font', size)

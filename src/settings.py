@@ -224,6 +224,7 @@ class SettingsMenu:
             return False
     
     def show(self):
+        """Make the settings panel visible and reload current values."""
         self.visible = True
         self.current_menu = "options"
         self.pending_menu = None
@@ -234,9 +235,17 @@ class SettingsMenu:
             slider.update()
     
     def hide(self):
+        """Hide the settings panel."""
         self.visible = False
     
     def handle_event(self, event):
+        """
+        Route a pygame event to the active sub-menu handler.
+        Args:
+            event (pygame.Event): The event to process.
+        Returns:
+            bool: True if the event was consumed, False otherwise.
+        """
         if not self.visible:
             return False
         
@@ -408,6 +417,11 @@ class SettingsMenu:
             self.current_menu = new_menu
     
     def update(self, dt):
+        """
+        Tick all visible buttons and sliders for the current menu.
+        Args:
+            dt (float): Elapsed time in seconds since the last frame.
+        """
         if self.visible:
             self.close_button.update(dt)
             
@@ -430,6 +444,12 @@ class SettingsMenu:
                 self.keyboard_back_button.update(dt)
         
     def draw(self, screen, font):
+        """
+        Draw the settings panel overlay onto the screen.
+        Args:
+            screen (pygame.Surface): Target surface.
+            font (pygame.font.Font): Font used for text labels.
+        """
         if not self.visible:
             return
         
