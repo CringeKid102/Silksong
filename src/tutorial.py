@@ -1,5 +1,7 @@
 import pygame
 from asset_paths import resolve_image_path
+from button import Button
+import config
 
 class Tutorial:
     """Tutorial overlay shown once after the intro cutscene for new saves."""
@@ -77,7 +79,7 @@ class Tutorial:
         self._transitioning   = False
         self._transition_t    = 0.0   # 0.0 → 1.0
         self._next_slide_idx  = 0
-        self._next_hovered    = False
+        self._transition_dir  = 1     # 1 = next (right-to-left), -1 = back (left-to-right)
 
         # Full-screen translucent overlay (built once)
         self._overlay = pygame.Surface((screen_width, screen_height), pygame.SRCALPHA)
@@ -99,17 +101,27 @@ class Tutorial:
         self._img_local = pygame.Rect(img_margin, img_margin,
                                       panel_w - img_margin * 2, img_h)
 
-        # "Next >" button – fixed screen position (bottom-right of panel)
-        btn_w, btn_h = 190, 54
-        self._next_btn_rect = pygame.Rect(
-            self._panel_rect.right  - btn_w - 24,
-            self._panel_rect.bottom - btn_h - 22,
-            btn_w,
-            btn_h,
+        # Reusable animated buttons from button.py
+        btn_y = self._panel_rect.bottom - 42
+        self._back_button = Button(
+            self._panel_rect.left + 110,
+            btn_y,
+            "Back",
+            self._NEXT_IDLE_COLOR,
+            config.font_path,
+            48,
+        )
+        self._next_button = Button(
+            self._panel_rect.right - 110,
+            btn_y,
+            "Next",
+            self._NEXT_IDLE_COLOR,
+            config.font_path,
+            48,
         )
 
         # Dot progress indicators (y inside panel, centered horizontally)
-        self._dot_panel_y = panel_h - (btn_h + 22 + 18)   # just above button
+        self._dot_panel_y = panel_h - 94
 
         # Lazy font references (populated on first draw via config cache)
         self._font_label = None
@@ -220,8 +232,14 @@ class Tutorial:
                 self.current_slide  = self._next_slide_idx
                 self._transitioning = False
                 self._transition_t  = 0.0
+                self._transition_dir = 1
         else:
-            self._next_hovered = self._next_btn_rect.collidepoint(mouse_pos)
+            is_first = self.current_slide == 0
+            is_last = self.current_slide == len(self.SLIDES) - 1
+            self._back_button.active = not is_first
+            self._next_button.text = "Done" if is_last else "Next"
+            self._back_button.update(dt)
+            self._next_button.update(dt)
 
     def draw(self, surface: pygame.Surface):
         """
@@ -236,24 +254,15 @@ class Tutorial:
 
         if self._transitioning:
             t       = self._transition_t
-            out_off = -int(t * self.w)               # current exits left
-            in_off  = int((1.0 - t) * self.w)        # next enters from right
+            out_off = -int(t * self.w) * self._transition_dir
+            in_off  = int((1.0 - t) * self.w) * self._transition_dir
             self._draw_slide(surface, self.current_slide, out_off)
             self._draw_slide(surface, self._next_slide_idx, in_off)
         else:
             self._draw_slide(surface, self.current_slide, 0)
-
-            # "Next >" button (changes to "Done >" on last slide)
-            is_last   = self.current_slide == len(self.SLIDES) - 1
-            btn_label = "Done  >" if is_last else "Next  >"
-            btn_color = self._NEXT_HOVER_COLOR if self._next_hovered else self._NEXT_IDLE_COLOR
-
-            pygame.draw.rect(surface, self._NEXT_BG_COLOR,  self._next_btn_rect, border_radius=8)
-            pygame.draw.rect(surface, btn_color,             self._next_btn_rect, width=2, border_radius=8)
-
-            btn_s    = self._font_label.render(btn_label, True, btn_color)
-            btn_rect = btn_s.get_rect(center=self._next_btn_rect.center)
-            surface.blit(btn_s, btn_rect)
+            if self.current_slide > 0:
+                self._back_button.draw(surface)
+            self._next_button.draw(surface)
 
     def handle_click(self, pos: tuple) -> bool:
         """
@@ -265,8 +274,21 @@ class Tutorial:
         """
         if self._transitioning:
             return False
-        if not self._next_btn_rect.collidepoint(pos):
+
+        if self._back_button.is_clicked(pos):
+            self._back_button.press()
+            prev_i = self.current_slide - 1
+            if prev_i >= 0:
+                self._next_slide_idx = prev_i
+                self._transitioning = True
+                self._transition_t = 0.0
+                self._transition_dir = -1
             return False
+
+        if not self._next_button.is_clicked(pos):
+            return False
+
+        self._next_button.press()
 
         next_i = self.current_slide + 1
         if next_i >= len(self.SLIDES):
@@ -278,6 +300,7 @@ class Tutorial:
         self._next_slide_idx = next_i
         self._transitioning  = True
         self._transition_t   = 0.0
+        self._transition_dir = 1
         return False
 
     def reset(self):
@@ -286,4 +309,6 @@ class Tutorial:
         self._transitioning = False
         self._transition_t  = 0.0
         self._next_slide_idx = 0
-        self._next_hovered   = False
+        self._transition_dir = 1
+        self._back_button.active = False
+        self._next_button.text = "Next"

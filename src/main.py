@@ -2243,7 +2243,7 @@ class Silksong:
             if event.type == pygame.QUIT or self.state == "exit":
                 self.running = False
 
-            # Temporary: allow quitting with ESC from any state
+            # ESC shortcuts for non-gameplay overlays
             if event.type == pygame.KEYDOWN and event.key == pygame.K_ESCAPE:
                 if self.state == "cutscene":
                     self._finish_cutscene()
@@ -2251,7 +2251,6 @@ class Silksong:
                 if self.state == "tutorial":
                     self.change_state("game")
                     continue
-                self.running = False
             
             # Skip input handling during transitions
             if self.transition_manager.active:
